@@ -27,6 +27,7 @@ Kullanim:
 """
 
 import argparse
+import math
 import random
 import shutil
 from pathlib import Path
@@ -66,23 +67,50 @@ class DocumentDegrader:
 
 
 class GeometricAugmenter:
-    """Albumentations pipeline'ini sarmalayip hafif geometri/isik bozulmalari uygular."""
+    """Albumentations pipeline'ini sarmalayip hafif geometri/isik bozulmalari uygular.
+
+    Dondurme ve perspektif, kenara yakin icerigi (satici adi, son sutundaki tutar)
+    kadraj disina itebilir. Iki onlem alinir:
+      - Donusumden once goruntuye beyaz kenar payi eklenir. Pay, MAX_ROTATION_DEG
+        ile dondurmede koselerin merkezden en fazla ne kadar tasabilecegi
+        hesaplanarak belirlenir; boylece dondurme sonrasi icerik hep kadraj icinde kalir.
+      - Perspective, fit_output=True ile calisir: albumentations kose dortgenini
+        kadraja germek yerine tum sayfayi kadraja sigdirir, hicbir sey kesilmez.
+    Cikti, eklenen pay kadar orijinalden buyuktur; orijinal boyuta geri kirpmak
+    donmus koseleri yeniden keserdi, o yuzden yapilmaz.
+    """
 
     WHITE = (255, 255, 255)
+    MAX_ROTATION_DEG = 3
+    PERSPECTIVE_SCALE = (0.01, 0.03)
+    PADDING_SAFETY_PX = 24
 
     def __init__(self, seed: int | None = None):
         self._transform = Compose(
             [
-                Rotate(limit=5, border_mode=cv2.BORDER_CONSTANT, fill=self.WHITE, p=0.8),
-                Perspective(scale=(0.02, 0.05), border_mode=cv2.BORDER_CONSTANT, fill=self.WHITE, p=0.5),
+                Rotate(limit=self.MAX_ROTATION_DEG, border_mode=cv2.BORDER_CONSTANT, fill=self.WHITE, p=0.8),
+                Perspective(scale=self.PERSPECTIVE_SCALE, fit_output=True,
+                            border_mode=cv2.BORDER_CONSTANT, fill=self.WHITE, p=0.5),
                 GaussianBlur(blur_limit=(3, 5), p=0.4),
                 RandomBrightnessContrast(brightness_limit=0.15, contrast_limit=0.15, p=0.6),
             ],
             seed=seed,
         )
 
+    @classmethod
+    def padding_for(cls, height: int, width: int) -> tuple[int, int]:
+        """Merkez etrafinda MAX_ROTATION_DEG dondurmede koselerin yatay/dikey en fazla tasma mesafesi."""
+        theta = math.radians(cls.MAX_ROTATION_DEG)
+        overflow_x = (height / 2) * math.sin(theta) + (width / 2) * (1 - math.cos(theta))
+        overflow_y = (width / 2) * math.sin(theta) + (height / 2) * (1 - math.cos(theta))
+        return math.ceil(overflow_x) + cls.PADDING_SAFETY_PX, math.ceil(overflow_y) + cls.PADDING_SAFETY_PX
+
     def augment(self, image_bgr: np.ndarray) -> np.ndarray:
-        return self._transform(image=image_bgr)["image"]
+        height, width = image_bgr.shape[:2]
+        pad_x, pad_y = self.padding_for(height, width)
+        padded = cv2.copyMakeBorder(image_bgr, pad_y, pad_y, pad_x, pad_x,
+                                    cv2.BORDER_CONSTANT, value=self.WHITE)
+        return self._transform(image=padded)["image"]
 
 
 class InvoiceAugmentationPipeline:

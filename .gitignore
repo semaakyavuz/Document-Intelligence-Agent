@@ -1,3 +1,5 @@
 graphify-out/
 .pytest_cache/
+__pycache__/
 data/
+.env

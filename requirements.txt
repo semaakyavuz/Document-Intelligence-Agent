@@ -8,5 +8,9 @@ albumentations
 opencv-python-headless
 numpy
 
+# app/ (Faz 3 iskelet: config, state, providers, agents)
+pydantic
+pydantic-settings
+
 # testler
 pytest

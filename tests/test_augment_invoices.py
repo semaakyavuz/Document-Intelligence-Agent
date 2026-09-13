@@ -7,14 +7,24 @@ subprocess olarak bunlar uzerinde calistirir; goruntu piksellerini/kalitesini
 degil, yalnizca uretilen dosya SAYISINI ve ISIMLERINI dogrular.
 """
 
+import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+import cv2
+import numpy as np
 from PIL import Image
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "augment_invoices.py"
+
+
+def _load_augment_module():
+    spec = importlib.util.spec_from_file_location("augment_invoices", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _make_fake_dataset(base_dir: Path, count: int) -> list[str]:
@@ -101,6 +111,22 @@ def test_augmented_label_matches_original(tmp_path):
     original_text = (input_dir / "labels" / "invoice_0001.json").read_text(encoding="utf-8")
     augmented_text = (output_dir / "labels" / "invoice_0001_aug01.json").read_text(encoding="utf-8")
     assert original_text == augmented_text
+
+
+def test_geometric_augmenter_keeps_edge_content():
+    """Kenara dayali icerik (satici adi, son sutun gibi) dondurme/perspektif sonrasi kesilmemeli."""
+    augmenter = _load_augment_module().GeometricAugmenter(seed=0)
+
+    height, width = 400, 300
+    image = np.full((height, width, 3), 255, dtype=np.uint8)
+    cv2.rectangle(image, (0, 0), (width - 1, height - 1), (0, 0, 0), thickness=3)
+
+    for _ in range(40):
+        output = augmenter.augment(image)
+        dark_rows, dark_cols = np.where(output.min(axis=2) < 128)
+        # Cerceve kadraj kenarina degiyorsa bir kismi kesilmis demektir.
+        assert dark_rows.min() > 0 and dark_rows.max() < output.shape[0] - 1
+        assert dark_cols.min() > 0 and dark_cols.max() < output.shape[1] - 1
 
 
 def test_golden_set_is_stable_across_seeds(tmp_path):
