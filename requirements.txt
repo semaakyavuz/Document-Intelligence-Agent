@@ -1,0 +1,12 @@
+# generate_invoices.py
+Faker
+Pillow
+
+# augment_invoices.py
+augraphy
+albumentations
+opencv-python-headless
+numpy
+
+# testler
+pytest
