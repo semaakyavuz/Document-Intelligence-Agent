@@ -22,5 +22,7 @@ class PipelineState(BaseModel):
     retrieved_rules: list[str] = Field(default_factory=list)  # RAG Agent'in getirdigi ilgili kural metinleri
     validated_data: dict | None = None        # Validation Agent'in onayladigi veri
     validation_errors: list[str] = Field(default_factory=list)  # bos degilse retry dongusu tetiklenir
+    anomalies: list[dict] = Field(default_factory=list)  # Validation Agent'in buldugu kural ihlalleri
+    is_valid: bool = True                     # anomalies bossa True
     retry_count: int = 0
     final_report: dict | None = None          # Report Agent'in son ciktisi
