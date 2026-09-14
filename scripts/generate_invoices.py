@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import random
+import sys
 from dataclasses import dataclass, field, asdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -339,6 +340,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    # Windows'ta stdout gercek bir konsola bagli degilse (yonlendirme/boru hatti) sistemin
+    # varsayilan ANSI kod sayfasina duser, UTF-8'e degil; bu da asagidaki "uretildi" mesajindaki
+    # Turkce karakteri sessizce bozabilir (bkz. run_pipeline_manual.py'de canlica yasanan hata).
+    sys.stdout.reconfigure(encoding="utf-8")
     args = build_arg_parser().parse_args()
 
     if args.seed is not None:
