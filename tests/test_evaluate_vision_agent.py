@@ -63,13 +63,6 @@ class ScriptedProvider(LLMProvider):
         return scenario
 
 
-class NeverCalledProvider(LLMProvider):
-    """Etiket zaten bozuksa modelin hic cagrilmamasi gerektigini dogrulamak icin."""
-
-    def generate(self, prompt: str, image_path: str | None = None, max_tokens: int | None = None) -> str:
-        raise AssertionError("Bozuk etiketli gorsel icin LLM cagrilmamali")
-
-
 # --- FieldComparator -------------------------------------------------------
 
 @pytest.mark.parametrize(

@@ -5,3 +5,4 @@ data/*
 !data/knowledge_base/
 .env
 .venv/
+augraphy_cache/

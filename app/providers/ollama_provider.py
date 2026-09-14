@@ -6,6 +6,11 @@ Yerel Ollama sunucusu uzerinden LLM ve embedding.
 OllamaLLMProvider gercek HTTP cagrisi yapar (/api/generate). Gorsel verilirse
 dosya base64'e cevrilip "images" alaninda gonderilir; llava gibi gorsel destekli
 modeller bunu okur. OllamaEmbeddingProvider /api/embeddings ucunu kullanir (RAG Agent icin).
+
+Ikisi de ayni sunucuya POST atip ayni sekilde hata veriyor (baglanti yok, zaman asimi,
+HTTP hatasi, JSON olmayan/beklenmedik govde); bu ortak kisim _post_json() adinda tek bir
+modul seviyesi yardimciya cikarilmistir. Her sinif yalnizca kendi yolunu/govdesini kurar
+ve basarili cevaptan kendi alanini ("response" ya da "embedding") ceker.
 """
 
 import base64
@@ -37,10 +42,58 @@ class OllamaResponseError(ProviderResponseError):
     """Sunucu ulasildi ama hata dondu (ornegin model yuklu degil)."""
 
 
+def _post_json(base_url: str, path: str, payload: dict, timeout_s: float, model: str, timeout_hint: str = "") -> dict:
+    """Ollama'ya POST atar; baglanti/zaman asimi/HTTP hatalarini ortak hata siniflarina
+    cevirir, basarili govdeyi JSON dict olarak dogrulayip dondurur.
+
+    OllamaLLMProvider.generate() ve OllamaEmbeddingProvider.embed() aynen bu deseni
+    izliyor; yalnizca yol, govde ve basarili cevaptan cekilecek alan farkli oldugu icin
+    bu kisim tek yerde tutulur.
+    """
+    try:
+        response = requests.post(base_url + path, json=payload, timeout=timeout_s)
+    except requests.exceptions.ConnectionError as exc:
+        raise OllamaConnectionError(
+            f"Ollama sunucusuna ulasilamadi ({base_url}). "
+            "Ollama calisiyor mu? 'ollama serve' ile baslattin mi?"
+        ) from exc
+    except requests.exceptions.Timeout as exc:
+        raise OllamaTimeoutError(f"Ollama {timeout_s:.0f} sn icinde cevap vermedi ({base_url}).{timeout_hint}") from exc
+
+    if not response.ok:
+        raise OllamaResponseError(
+            f"Ollama HTTP {response.status_code} dondu: {_error_text(response)}. "
+            f"Model yuklu mu? 'ollama pull {model}' ile kontrol edin."
+        )
+
+    try:
+        body = response.json()
+    except ValueError as exc:  # requests.JSONDecodeError, ValueError'in alt sinifi
+        raise OllamaResponseError(f"Ollama JSON olmayan govde dondu: {response.text[:200]!r}") from exc
+    if not isinstance(body, dict):
+        raise OllamaResponseError(f"Ollama beklenmeyen govde tipi dondu: {type(body).__name__}")
+    return body
+
+
+def _preview(body: dict) -> str:
+    return ", ".join(f"{k}={type(v).__name__}" for k, v in body.items()) or "(bos govde)"
+
+
+def _error_text(response: requests.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text[:200]
+    if isinstance(body, dict) and isinstance(body.get("error"), str):
+        return body["error"]
+    return response.text[:200]
+
+
 class OllamaLLMProvider(LLMProvider):
     """Ollama /api/generate ucu uzerinden metin ve gorsel destekli uretim."""
 
     GENERATE_PATH = "/api/generate"
+    TIMEOUT_HINT = " CPU'da buyuk model yavas olabilir; .env'de OLLAMA_TIMEOUT_S degerini artirin."
 
     def __init__(self, base_url: str, model: str, timeout_s: float = 600.0, temperature: float = 0.0):
         # CPU'da llava: gorsel kodlama ~80 sn + 2-3 token/sn uretim; tam bir fatura JSON'u 5 dakikayi asabilir.
@@ -63,41 +116,17 @@ class OllamaLLMProvider(LLMProvider):
         if image_path is not None:
             payload["images"] = [self._encode_image(image_path)]
 
-        try:
-            response = requests.post(self.base_url + self.GENERATE_PATH, json=payload, timeout=self.timeout_s)
-        except requests.exceptions.ConnectionError as exc:
-            raise OllamaConnectionError(
-                f"Ollama sunucusuna ulasilamadi ({self.base_url}). "
-                "Ollama calisiyor mu? 'ollama serve' ile baslattin mi?"
-            ) from exc
-        except requests.exceptions.Timeout as exc:
-            raise OllamaTimeoutError(
-                f"Ollama {self.timeout_s:.0f} sn icinde cevap vermedi ({self.base_url}). "
-                "CPU'da buyuk model yavas olabilir; .env'de OLLAMA_TIMEOUT_S degerini artirin."
-            ) from exc
+        body = _post_json(
+            self.base_url, self.GENERATE_PATH, payload, self.timeout_s, self.model, timeout_hint=self.TIMEOUT_HINT
+        )
+        return self._extract_text(body)
 
-        if not response.ok:
-            raise OllamaResponseError(
-                f"Ollama HTTP {response.status_code} dondu: {self._error_text(response)}. "
-                f"Model yuklu mu? 'ollama pull {self.model}' ile kontrol edin."
-            )
-
-        return self._extract_text(response)
-
-    @classmethod
-    def _extract_text(cls, response: requests.Response) -> str:
-        """Govdeyi dogrular: JSON olmali, 'response' alani string olmali. Aksi halde OllamaResponseError."""
-        try:
-            body = response.json()
-        except ValueError as exc:  # requests.JSONDecodeError, ValueError'in alt sinifi
-            raise OllamaResponseError(f"Ollama JSON olmayan govde dondu: {response.text[:200]!r}") from exc
-        if not isinstance(body, dict):
-            raise OllamaResponseError(f"Ollama beklenmeyen govde tipi dondu: {type(body).__name__}")
+    @staticmethod
+    def _extract_text(body: dict) -> str:
+        """body zaten JSON dict oldugu dogrulanmis (_post_json). 'response' alani string olmali."""
         text = body.get("response")
         if not isinstance(text, str):
-            raise OllamaResponseError(
-                f"Ollama cevabinda 'response' alani yok ya da string degil: {cls._preview(body)}"
-            )
+            raise OllamaResponseError(f"Ollama cevabinda 'response' alani yok ya da string degil: {_preview(body)}")
         if not body.get("done", True) or body.get("done_reason") == "length":
             # Model tekrar dongusune girince Ollama uretimi sessizce keser (done=false) ya da
             # num_predict sinirina takilir (done_reason=length). Metin yine doner ama JSON yarim
@@ -109,25 +138,11 @@ class OllamaLLMProvider(LLMProvider):
         return text
 
     @staticmethod
-    def _preview(body: dict) -> str:
-        return ", ".join(f"{k}={type(v).__name__}" for k, v in body.items()) or "(bos govde)"
-
-    @staticmethod
     def _encode_image(image_path: str) -> str:
         path = Path(image_path)
         if not path.is_file():
             raise FileNotFoundError(f"Gorsel bulunamadi: {path}")
         return base64.b64encode(path.read_bytes()).decode("ascii")
-
-    @staticmethod
-    def _error_text(response: requests.Response) -> str:
-        try:
-            body = response.json()
-        except ValueError:
-            return response.text[:200]
-        if isinstance(body, dict) and isinstance(body.get("error"), str):
-            return body["error"]
-        return response.text[:200]
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
@@ -143,43 +158,13 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
     def embed(self, text: str) -> list[float]:
         payload = {"model": self.model, "prompt": text}
-
-        try:
-            response = requests.post(self.base_url + self.EMBEDDINGS_PATH, json=payload, timeout=self.timeout_s)
-        except requests.exceptions.ConnectionError as exc:
-            raise OllamaConnectionError(
-                f"Ollama sunucusuna ulasilamadi ({self.base_url}). "
-                "Ollama calisiyor mu? 'ollama serve' ile baslattin mi?"
-            ) from exc
-        except requests.exceptions.Timeout as exc:
-            raise OllamaTimeoutError(
-                f"Ollama {self.timeout_s:.0f} sn icinde cevap vermedi ({self.base_url})."
-            ) from exc
-
-        if not response.ok:
-            raise OllamaResponseError(
-                f"Ollama HTTP {response.status_code} dondu: {self._error_text(response)}. "
-                f"Model yuklu mu? 'ollama pull {self.model}' ile kontrol edin."
-            )
-
-        return self._extract_embedding(response)
-
-    @classmethod
-    def _extract_embedding(cls, response: requests.Response) -> list[float]:
-        """Govdeyi dogrular: JSON olmali, 'embedding' alani sayilardan olusan bir liste olmali."""
-        try:
-            body = response.json()
-        except ValueError as exc:
-            raise OllamaResponseError(f"Ollama JSON olmayan govde dondu: {response.text[:200]!r}") from exc
-        if not isinstance(body, dict):
-            raise OllamaResponseError(f"Ollama beklenmeyen govde tipi dondu: {type(body).__name__}")
-        embedding = body.get("embedding")
-        if not isinstance(embedding, list) or not embedding or not all(isinstance(x, (int, float)) for x in embedding):
-            raise OllamaResponseError(
-                f"Ollama cevabinda 'embedding' alani yok ya da gecersiz: {OllamaLLMProvider._preview(body)}"
-            )
-        return embedding
+        body = _post_json(self.base_url, self.EMBEDDINGS_PATH, payload, self.timeout_s, self.model)
+        return self._extract_embedding(body)
 
     @staticmethod
-    def _error_text(response: requests.Response) -> str:
-        return OllamaLLMProvider._error_text(response)
+    def _extract_embedding(body: dict) -> list[float]:
+        """body zaten JSON dict oldugu dogrulanmis (_post_json). 'embedding' sayilardan olusan bir liste olmali."""
+        embedding = body.get("embedding")
+        if not isinstance(embedding, list) or not embedding or not all(isinstance(x, (int, float)) for x in embedding):
+            raise OllamaResponseError(f"Ollama cevabinda 'embedding' alani yok ya da gecersiz: {_preview(body)}")
+        return embedding

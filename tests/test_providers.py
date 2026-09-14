@@ -443,6 +443,87 @@ def test_gemini_empty_text_response_raises_response_error(gemini_provider):
         gemini_provider.generate("oku")
 
 
+# --- GeminiLLMProvider: thinking_config fallback ------------------------------
+#
+# gemini-3.6-flash thinking_level=MINIMAL'i kabul ediyordu ama thinking_budget=0'i HTTP 400
+# ile reddediyordu (canli dogrulandi). Farkli bir GEMINI_VISION_MODEL, thinking_config'in
+# KENDISINI de reddedebilir; bu durumda _call_with_thinking_fallback thinking olmadan bir
+# kez daha dener ve ogrendigini (provider._thinking_supported) hatirlar.
+
+class SequencedFakeGeminiModels:
+    """Client().models yerine gecer; her cagrida behaviors listesinden bir sonrakini kullanir
+    (ilk cagri farkli, fallback sonrasi ikinci cagri farkli davransin diye)."""
+
+    def __init__(self, behaviors: list):
+        self.behaviors = list(behaviors)
+        self.calls: list[dict] = []
+
+    def generate_content(self, *, model, contents, config):
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        behavior = self.behaviors.pop(0)
+        if isinstance(behavior, Exception):
+            raise behavior
+        return behavior
+
+
+def _use_fake_client_sequence(provider: GeminiLLMProvider, behaviors: list) -> SequencedFakeGeminiModels:
+    fake_models = SequencedFakeGeminiModels(behaviors)
+    provider._client = type("FakeClient", (), {"models": fake_models})()
+    return fake_models
+
+
+def _thinking_rejected_error() -> genai_errors.ClientError:
+    return genai_errors.ClientError(
+        code=400, response_json={"error": {"message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT"}}
+    )
+
+
+def test_gemini_falls_back_when_model_rejects_thinking_config(gemini_provider):
+    gemini_provider._thinking_supported = None  # bilinmeyen durumdan basla (test izolasyonu)
+    fake_models = _use_fake_client_sequence(gemini_provider, [_thinking_rejected_error(), FakeGeminiResponse(text="{}")])
+
+    text = gemini_provider.generate("oku")
+
+    assert text == "{}"
+    assert len(fake_models.calls) == 2
+    assert fake_models.calls[0]["config"].thinking_config is not None  # ilk deneme thinking ile
+    assert fake_models.calls[1]["config"].thinking_config is None  # fallback thinking'siz
+    assert gemini_provider._thinking_supported is False
+
+
+def test_gemini_remembers_thinking_unsupported_and_skips_retry_next_call(gemini_provider):
+    gemini_provider._thinking_supported = False  # onceki bir cagridan ogrenilmis gibi
+    fake_models = _use_fake_client_sequence(gemini_provider, [FakeGeminiResponse(text="{}")])
+
+    text = gemini_provider.generate("oku")
+
+    assert text == "{}"
+    assert len(fake_models.calls) == 1  # thinking'li ilk deneme hic yapilmadi, bosuna cagri yok
+    assert fake_models.calls[0]["config"].thinking_config is None
+
+
+def test_gemini_remembers_thinking_supported(gemini_provider):
+    gemini_provider._thinking_supported = None
+    fake_models = _use_fake_client_sequence(gemini_provider, [FakeGeminiResponse(text="{}")])
+
+    gemini_provider.generate("oku")
+
+    assert gemini_provider._thinking_supported is True
+    assert fake_models.calls[0]["config"].thinking_config is not None
+
+
+def test_gemini_rate_limit_on_first_attempt_is_not_treated_as_thinking_issue(gemini_provider):
+    gemini_provider._thinking_supported = None
+    error = genai_errors.ClientError(code=429, response_json={"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+    fake_models = _use_fake_client_sequence(gemini_provider, [error])
+
+    with pytest.raises(GeminiRateLimitError):
+        gemini_provider.generate("oku")
+
+    assert len(fake_models.calls) == 1  # fallback denenmedi, dogrudan rate-limit hatasi verildi
+    assert gemini_provider._thinking_supported is None  # ogrenilen bir sey yok, sebep 400 degildi
+
+
 def test_gemini_provider_reads_model_and_timeout_from_settings(monkeypatch):
     settings = _settings_from_env(
         monkeypatch, LLM_PROVIDER="gemini", GEMINI_API_KEY="test-key", GEMINI_VISION_MODEL="gemini-3.7-flash"

@@ -52,13 +52,16 @@ def main() -> None:
     # ham response nesnesinde var. Bunun icin ayni istegi ikinci kez atmak gerekiyor (LLMProvider
     # ABC'si yalnizca str dondurur); provider._build_generation_config() kullanarak yukaridaki
     # cagriyla BIREBIR ayni ayarlarla (temperature, thinking_config, response_mime_type) gidilir,
-    # yoksa bu teshis bilgisi gercek davranistan sapabilir.
+    # yoksa bu teshis bilgisi gercek davranistan sapabilir. include_thinking, yukaridaki gercek
+    # generate() cagrisinin ogrendigi degeri (provider._thinking_supported) kullanir; boylece
+    # model thinking_config'i reddediyorsa burada da (bosuna) tekrar denenmez.
     client = getattr(provider, "_client", None)
     if client is not None:
+        include_thinking = provider._thinking_supported is not False
         response = client.models.generate_content(
             model=provider.model,
             contents=[VisionAgent.EXTRACTION_PROMPT, provider._load_image(str(args.image))],
-            config=provider._build_generation_config(VisionAgent.MAX_OUTPUT_TOKENS),
+            config=provider._build_generation_config(VisionAgent.MAX_OUTPUT_TOKENS, include_thinking=include_thinking),
         )
         print("\nTESHIS BILGISI (Gemini):")
         if response.candidates:

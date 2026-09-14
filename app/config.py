@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     OLLAMA_TIMEOUT_S: float = 600  # CPU'da gorsel model bir fatura icin 5 dakikayi asabilir
     GROQ_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
-    GEMINI_VISION_MODEL: str = "gemini-3.6-flash"  # goruntu destekli Gemini modeli
+    # goruntu destekli Gemini modeli. gemini-3.6-flash gunde sadece 20 istek veriyordu
+    # (ucretsiz katman kotasi); flash-lite ~500/gun veriyor ve ayri bir kota havuzu kullaniyor.
+    GEMINI_VISION_MODEL: str = "gemini-3.5-flash-lite"
     LLM_TEMPERATURE: float = 0.0  # tum saglayicilar icin ortak: 0 = ayni girdi -> ayni cikti (tekrarlanabilir sonuc)
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"  # RAG icin embedding modeli (ollama pull nomic-embed-text)
     CHROMA_DB_PATH: str = "data/chroma_db"  # yerel, persist edilen vektor veritabani klasoru

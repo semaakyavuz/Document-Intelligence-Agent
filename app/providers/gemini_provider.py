@@ -8,12 +8,15 @@ paketi artik legacy/deprecated oldugu icin (Google'in kendi tavsiyesiyle) onun
 yerine aktif gelistirilen google-genai kullanilir. Embedding tarafi henuz iskelet.
 """
 
+import logging
 from pathlib import Path
 
 import httpx
 from google import genai
 from google.genai import errors, types
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 from app.providers.base import (
     EmbeddingProvider,
@@ -61,6 +64,10 @@ class GeminiLLMProvider(LLMProvider):
         self.model = model
         self.timeout_s = timeout_s
         self.temperature = temperature
+        # None: henuz bilinmiyor (ilk cagrida ogrenilir). Bazi modeller thinking_config'i
+        # tanimiyor/reddediyor (bkz. _call_with_thinking_fallback); ogrenilince burada tutulur
+        # ki her generate() cagrisinda bosuna basarisiz bir deneme yapilmasin.
+        self._thinking_supported: bool | None = None
         # Client tek seferde kurulur (baglanti/kimlik dogrulama her generate() cagrisinda tekrarlanmaz).
         self._client = genai.Client(
             api_key=self.api_key,
@@ -72,10 +79,8 @@ class GeminiLLMProvider(LLMProvider):
         if image_path is not None:
             contents.append(self._load_image(image_path))
 
-        config = self._build_generation_config(max_tokens)
-
         try:
-            response = self._client.models.generate_content(model=self.model, contents=contents, config=config)
+            response = self._call_with_thinking_fallback(contents, max_tokens)
         except httpx.TimeoutException as exc:
             raise GeminiTimeoutError(
                 f"Gemini {self.timeout_s:.0f} sn icinde cevap vermedi (model={self.model})."
@@ -94,25 +99,55 @@ class GeminiLLMProvider(LLMProvider):
 
         return self._extract_text(response)
 
-    def _build_generation_config(self, max_tokens: int | None) -> types.GenerateContentConfig:
+    def _call_with_thinking_fallback(self, contents: list, max_tokens: int | None):
+        """thinking_config icerecek sekilde cagirir; model bunu taniyip taramiyorsa (HTTP 400)
+        thinking_config'siz tekrar dener ve sonucu bu instance icin hatirlar.
+
+        Neden gerekli: gemini-3.6-flash'ta thinking_budget=0 acikca reddediliyordu,
+        thinking_level=MINIMAL ise calisiyordu (bkz. modul ust bilgisi). Ama her Gemini
+        modelinin thinking_config'i ayni sekilde destekleyecegi garanti degil; farkli bir
+        GEMINI_VISION_MODEL'e gecilince thinking_config'in kendisi de reddedilebilir. Bu
+        durumda tek seferlik bir HTTP 400'u tolere edip thinking olmadan devam ederiz.
+        """
+        if self._thinking_supported is not False:
+            try:
+                config = self._build_generation_config(max_tokens, include_thinking=True)
+                response = self._client.models.generate_content(model=self.model, contents=contents, config=config)
+                self._thinking_supported = True
+                return response
+            except errors.ClientError as exc:
+                if exc.code != 400:
+                    raise  # 429 (rate limit) vb. burada ele alinmaz, generate()'e yukari cikar
+                logger.warning(
+                    "%s modeli thinking_config'i reddetti (HTTP 400); thinking olmadan tekrar deneniyor.",
+                    self.model,
+                )
+                self._thinking_supported = False
+
+        config = self._build_generation_config(max_tokens, include_thinking=False)
+        return self._client.models.generate_content(model=self.model, contents=contents, config=config)
+
+    def _build_generation_config(self, max_tokens: int | None, include_thinking: bool) -> types.GenerateContentConfig:
         """Bu saglayicinin her cagrida kullandigi sabit uretim ayarlari (debug script'i de
         aynen bunu cagirir; ayarlarin iki yerde ayri ayri tutulup birbirinden sapmasini onler)."""
-        return types.GenerateContentConfig(
-            temperature=self.temperature,
-            max_output_tokens=max_tokens,
+        thinking_config = None
+        if include_thinking:
             # Yapisal veri cikarma karmasik muhakeme gerektirmiyor; "thinking" butcesi
             # max_output_tokens'i gorunmeyen ara-dusunce token'lariyla paylasip goruntu
             # cevabini erken kesiyordu (bkz. scripts/debug_single_extraction.py bulgusu:
             # finish_reason=MAX_TOKENS, thoughts_token_count=982).
             #
-            # thinking_budget=0 (SDK dokumantasyonunda "0 is DISABLED" der) gemini-3.6-flash'ta
-            # canlica denendi ve HTTP 400 INVALID_ARGUMENT ile reddedildi; 1-10 arasi degerler ise
-            # hataya dusmeden sessizce ~90-95 token'a yukseltiliyor (bu modelin bir minimum
-            # dusunce payi var, tamamen kapatilamiyor). thinking_level=MINIMAL calisan ve
-            # thoughts_token_count=None (olcumsuz/en az) sonucunu veren tek secenek oldu.
-            # Farkli bir GEMINI_VISION_MODEL'e gecilirse bu deger o model icin gecersiz
-            # olabilir; degistirirken scripts/debug_single_extraction.py ile tekrar dogrulayin.
-            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+            # thinking_budget=0 (SDK dokumantasyonunda "0 is DISABLED" der) hem gemini-3.6-flash
+            # hem gemini-3.5-flash-lite'ta canlica denendi ve ikisinde de HTTP 400 INVALID_ARGUMENT
+            # ile reddedildi; thinking_level=MINIMAL ise ikisinde de calisiyor ve
+            # thoughts_token_count=None (olcumsuz/en az) sonucunu veriyor. Yine de her model
+            # thinking_config'i taniyacak diye bir garanti yok; taramayan bir model icin
+            # _call_with_thinking_fallback bu ayari otomatik olarak atlar.
+            thinking_config = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
+        return types.GenerateContentConfig(
+            temperature=self.temperature,
+            max_output_tokens=max_tokens,
+            thinking_config=thinking_config,
             # Modelin metin etrafina aciklama/kod citi eklemeden dogrudan JSON dondurmesini zorunlu kilar.
             response_mime_type="application/json",
         )
@@ -149,5 +184,6 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
         self.api_key = _require_api_key(api_key)
 
     def embed(self, text: str) -> list[float]:
-        # TODO(faz 6, RAG): google-genai SDK ile embed_content
-        raise NotImplementedError("GeminiEmbeddingProvider.embed RAG faziyla birlikte eklenecek")
+        # TODO: google-genai SDK ile embed_content. RAG Agent bilerek yalnizca Ollama embedding
+        # kullaniyor (yerel kalsin diye); bu metot su an hicbir akista cagrilmiyor.
+        raise NotImplementedError("GeminiEmbeddingProvider.embed henuz eklenmedi")
