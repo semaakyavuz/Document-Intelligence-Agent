@@ -42,14 +42,15 @@ class OllamaLLMProvider(LLMProvider):
 
     GENERATE_PATH = "/api/generate"
 
-    def __init__(self, base_url: str, model: str, timeout_s: float = 600.0):
+    def __init__(self, base_url: str, model: str, timeout_s: float = 600.0, temperature: float = 0.0):
         # CPU'da llava: gorsel kodlama ~80 sn + 2-3 token/sn uretim; tam bir fatura JSON'u 5 dakikayi asabilir.
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_s = timeout_s
+        self.temperature = temperature
 
     def generate(self, prompt: str, image_path: str | None = None, max_tokens: int | None = None) -> str:
-        options: dict = {"temperature": 0}  # ayni girdi -> ayni cikti; degerlendirme tekrarlanabilir olsun
+        options: dict = {"temperature": self.temperature}
         if max_tokens is not None:
             # Model tekrar dongusune girerse zaman asimina kadar CPU yakmasin; num_predict uretimi keser.
             options["num_predict"] = max_tokens

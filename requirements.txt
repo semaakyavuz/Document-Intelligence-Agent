@@ -12,6 +12,7 @@ numpy
 pydantic
 pydantic-settings
 requests
+google-genai  # google-generativeai artik legacy (deprecated); Google'in resmi devam paketi
 
 # testler
 pytest

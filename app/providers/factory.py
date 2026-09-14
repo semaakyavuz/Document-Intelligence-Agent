@@ -15,10 +15,15 @@ from app.providers.ollama_provider import OllamaEmbeddingProvider, OllamaLLMProv
 
 _LLM_BUILDERS: dict[str, Callable[[Settings], LLMProvider]] = {
     "ollama": lambda s: OllamaLLMProvider(
-        base_url=s.OLLAMA_BASE_URL, model=s.OLLAMA_VISION_MODEL, timeout_s=s.OLLAMA_TIMEOUT_S
+        base_url=s.OLLAMA_BASE_URL,
+        model=s.OLLAMA_VISION_MODEL,
+        timeout_s=s.OLLAMA_TIMEOUT_S,
+        temperature=s.LLM_TEMPERATURE,
     ),
-    "groq": lambda s: GroqLLMProvider(api_key=s.GROQ_API_KEY),
-    "gemini": lambda s: GeminiLLMProvider(api_key=s.GEMINI_API_KEY),
+    "groq": lambda s: GroqLLMProvider(api_key=s.GROQ_API_KEY, temperature=s.LLM_TEMPERATURE),
+    "gemini": lambda s: GeminiLLMProvider(
+        api_key=s.GEMINI_API_KEY, model=s.GEMINI_VISION_MODEL, temperature=s.LLM_TEMPERATURE
+    ),
 }
 
 _EMBEDDING_BUILDERS: dict[str, Callable[[Settings], EmbeddingProvider]] = {

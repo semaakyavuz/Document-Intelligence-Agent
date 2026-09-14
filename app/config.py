@@ -24,4 +24,6 @@ class Settings(BaseSettings):
     OLLAMA_TIMEOUT_S: float = 600  # CPU'da gorsel model bir fatura icin 5 dakikayi asabilir
     GROQ_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
+    GEMINI_VISION_MODEL: str = "gemini-3.6-flash"  # goruntu destekli Gemini modeli
+    LLM_TEMPERATURE: float = 0.0  # tum saglayicilar icin ortak: 0 = ayni girdi -> ayni cikti (tekrarlanabilir sonuc)
     DATABASE_URL: str = "sqlite:///./data/app.db"

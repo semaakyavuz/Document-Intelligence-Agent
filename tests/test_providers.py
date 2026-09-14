@@ -2,19 +2,30 @@
 Factory'nin ortam degiskenlerine gore dogru provider sinifini sectigini test eder.
 
 Gercek .env dosyasi okunmaz (_env_file=None); degiskenler monkeypatch ile
-sahte olarak verilir. Ollama testlerinde requests.post monkeypatch'lenir,
-diger provider'lar stub oldugu icin hicbir test agla cikmaz.
+sahte olarak verilir. Ollama testlerinde requests.post, Gemini testlerinde
+provider._client (google-genai Client'in yerine gecen sahte nesne) monkeypatch'lenir;
+Groq hala stub oldugu icin o testler NotImplementedError bekler. Hicbir test agla cikmaz.
 """
 
 import base64
 
+import httpx
 import pytest
 import requests
+from google.genai import errors as genai_errors
+from PIL import Image as PILImage
 from pydantic import ValidationError
 
 from app.config import Settings
 from app.providers.factory import get_embedding_provider, get_llm_provider
-from app.providers.gemini_provider import GeminiEmbeddingProvider, GeminiLLMProvider
+from app.providers.gemini_provider import (
+    GeminiConnectionError,
+    GeminiEmbeddingProvider,
+    GeminiLLMProvider,
+    GeminiRateLimitError,
+    GeminiResponseError,
+    GeminiTimeoutError,
+)
 from app.providers.groq_provider import GroqLLMProvider
 from app.providers.ollama_provider import (
     OllamaConnectionError,
@@ -74,7 +85,7 @@ def test_cloud_provider_requires_api_key(monkeypatch):
 
 
 def test_stub_provider_raises_instead_of_calling_network(monkeypatch):
-    settings = _settings_from_env(monkeypatch, LLM_PROVIDER="gemini", GEMINI_API_KEY="test-key")
+    settings = _settings_from_env(monkeypatch, LLM_PROVIDER="groq", GROQ_API_KEY="test-key")
     with pytest.raises(NotImplementedError):
         get_llm_provider(settings).generate("merhaba")
 
@@ -84,6 +95,21 @@ def test_ollama_provider_reads_model_from_settings(monkeypatch):
     provider = get_llm_provider(settings)
     assert isinstance(provider, OllamaLLMProvider)
     assert provider.model == "llava:13b"
+
+
+@pytest.mark.parametrize(
+    "provider_name, extra_env",
+    [
+        ("ollama", {}),
+        ("groq", {"GROQ_API_KEY": "test-key"}),
+        ("gemini", {"GEMINI_API_KEY": "test-key"}),
+    ],
+)
+def test_llm_temperature_flows_from_settings_through_factory_to_every_provider(monkeypatch, provider_name, extra_env):
+    """temperature artik hicbir provider'a gomulu degil; ucu de factory'den, tek bir
+    Settings.LLM_TEMPERATURE alanindan aliyor (provider Settings'i kendisi okumuyor)."""
+    settings = _settings_from_env(monkeypatch, LLM_PROVIDER=provider_name, LLM_TEMPERATURE="0.42", **extra_env)
+    assert get_llm_provider(settings).temperature == pytest.approx(0.42)
 
 
 def test_ollama_connection_error_gives_actionable_message(monkeypatch):
@@ -147,6 +173,22 @@ def test_ollama_max_tokens_becomes_num_predict(monkeypatch):
     assert captured["payload"]["options"]["num_predict"] == 1024
 
 
+def test_ollama_temperature_is_configurable(monkeypatch):
+    """temperature artik provider'a gomulu sabit degil; Settings.LLM_TEMPERATURE'dan gelir."""
+    captured: dict = {}
+
+    def fake_post(url, json, timeout):
+        captured.update(payload=json)
+        return FakeResponse(body={"response": "{}"})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    OllamaLLMProvider(base_url="http://localhost:11434", model="llava").generate("oku")
+    assert captured["payload"]["options"]["temperature"] == 0.0  # varsayilan
+
+    OllamaLLMProvider(base_url="http://localhost:11434", model="llava", temperature=0.7).generate("oku")
+    assert captured["payload"]["options"]["temperature"] == 0.7
+
+
 def test_ollama_non_json_body_raises_response_error(monkeypatch):
     monkeypatch.setattr(
         requests, "post",
@@ -199,3 +241,152 @@ def test_ollama_truncated_response_logs_warning(monkeypatch, caplog):
 
     assert text == '{"invoice_no": "111'  # yarim da olsa metin kaybedilmez, ust katman (parser) karar verir
     assert "kesildi" in caplog.text
+
+
+# --- GeminiLLMProvider -------------------------------------------------------
+#
+# google-genai'nin gercek Client'ina baglanilmaz; provider._client sahte bir
+# nesneyle degistirilir. Bu, requests.post monkeypatch'iyle ayni fikri
+# (saglayicinin cagirdigi son sinira mudahale et) Gemini'nin istemci-nesnesi
+# tabanli SDK'sina uyarlar.
+
+class FakeGeminiModels:
+    """Client().models yerine gecer; behavior bir Exception ise firlatir, degilse dondurur."""
+
+    def __init__(self, behavior):
+        self.behavior = behavior
+        self.calls: list[dict] = []
+
+    def generate_content(self, *, model, contents, config):
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        if isinstance(self.behavior, Exception):
+            raise self.behavior
+        return self.behavior
+
+
+class FakeGeminiResponse:
+    def __init__(self, text):
+        self.text = text
+        self.prompt_feedback = None
+
+
+@pytest.fixture(scope="module")
+def gemini_provider() -> GeminiLLMProvider:
+    """genai.Client(...) kurulumu tek basina ~1.5 sn suruyor (google-genai'nin kendi maliyeti,
+    agla ilgisi yok). Testler arasinda tek bir GeminiLLMProvider paylasilir; her test yalnizca
+    provider._client'i kendi sahte davranisiyla degistirir, provider'i yeniden kurmaz."""
+    return GeminiLLMProvider(api_key="test-key", model="gemini-3.6-flash")
+
+
+def _use_fake_client(provider: GeminiLLMProvider, behavior) -> FakeGeminiModels:
+    fake_models = FakeGeminiModels(behavior)
+    provider._client = type("FakeClient", (), {"models": fake_models})()
+    return fake_models
+
+
+def test_gemini_sends_prompt_and_image(gemini_provider, tmp_path):
+    image = tmp_path / "fatura.png"
+    image.write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        b"\x00\x00\x00\nIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    fake_models = _use_fake_client(gemini_provider, FakeGeminiResponse(text='{"invoice_no": "1"}'))
+
+    text = gemini_provider.generate("faturayi oku", image_path=str(image))
+
+    assert text == '{"invoice_no": "1"}'
+    call = fake_models.calls[0]
+    assert call["model"] == "gemini-3.6-flash"
+    assert call["contents"][0] == "faturayi oku"
+    assert isinstance(call["contents"][1], PILImage.Image)  # gorsel gercekten acilip eklendi
+    assert call["config"].temperature == 0
+    assert call["config"].max_output_tokens is None  # max_tokens verilmedi
+
+
+def test_gemini_max_tokens_becomes_max_output_tokens(gemini_provider):
+    fake_models = _use_fake_client(gemini_provider, FakeGeminiResponse(text="{}"))
+    gemini_provider.generate("oku", max_tokens=1024)
+    assert fake_models.calls[0]["config"].max_output_tokens == 1024
+
+
+def test_gemini_missing_image_raises_before_calling_api(gemini_provider, tmp_path):
+    fake_models = _use_fake_client(gemini_provider, FakeGeminiResponse(text="{}"))
+    with pytest.raises(FileNotFoundError, match="olmayan"):
+        gemini_provider.generate("oku", image_path=str(tmp_path / "olmayan.png"))
+    assert fake_models.calls == []  # dosya yoksa API'ye hic gidilmez
+
+
+def test_gemini_corrupted_image_raises_response_error_not_raw_exception(gemini_provider, tmp_path):
+    """Dosya var ama gorsel olarak acilamiyor (bozuk/yarim indirilmis/yanlis format).
+    FileNotFoundError'dan farkli: bu durumda ProviderError ailesine sarilmali ki
+    VisionAgentEvaluator tek bir bozuk gorselde tum kosuyu cokertmesin."""
+    bad_image = tmp_path / "bozuk.png"
+    bad_image.write_bytes(b"bu bir gorsel dosyasi degil")
+    fake_models = _use_fake_client(gemini_provider, FakeGeminiResponse(text="{}"))
+
+    with pytest.raises(GeminiResponseError, match="acilamadi"):
+        gemini_provider.generate("oku", image_path=str(bad_image))
+    assert fake_models.calls == []  # gorsel acilamadiysa API'ye hic gidilmez
+
+
+def test_gemini_rate_limit_raises_specific_error(gemini_provider):
+    error = genai_errors.ClientError(
+        code=429, response_json={"error": {"message": "Resource exhausted", "status": "RESOURCE_EXHAUSTED"}}
+    )
+    _use_fake_client(gemini_provider, error)
+    with pytest.raises(GeminiRateLimitError, match="429"):
+        gemini_provider.generate("oku")
+
+
+def test_gemini_other_api_error_raises_response_error_not_rate_limit(gemini_provider):
+    error = genai_errors.ServerError(code=500, response_json={"error": {"message": "internal", "status": "INTERNAL"}})
+    _use_fake_client(gemini_provider, error)
+    with pytest.raises(GeminiResponseError) as excinfo:
+        gemini_provider.generate("oku")
+    assert not isinstance(excinfo.value, GeminiRateLimitError)
+
+
+def test_gemini_api_error_with_no_code_is_not_mistaken_for_rate_limit(gemini_provider):
+    """exc.code None donebilir (SDK durumu response_json'dan cikaramazsa). 'exc.code == 429'
+    kontrolu bu durumda sessizce False olmali, genel GeminiResponseError'a dusmeli."""
+    error = genai_errors.ServerError(code=None, response_json={"error": {"message": "bilinmiyor"}})
+    assert error.code is None  # varsayim gecerli mi, once dogrula
+    _use_fake_client(gemini_provider, error)
+    with pytest.raises(GeminiResponseError) as excinfo:
+        gemini_provider.generate("oku")
+    assert not isinstance(excinfo.value, GeminiRateLimitError)
+
+
+def test_gemini_connect_error_raises_connection_error(gemini_provider):
+    _use_fake_client(gemini_provider, httpx.ConnectError("refused"))
+    with pytest.raises(GeminiConnectionError):
+        gemini_provider.generate("oku")
+
+
+def test_gemini_timeout_raises_timeout_error(gemini_provider):
+    _use_fake_client(gemini_provider, httpx.ReadTimeout("timed out"))
+    with pytest.raises(GeminiTimeoutError, match="120"):
+        gemini_provider.generate("oku")
+
+
+def test_gemini_empty_text_response_raises_response_error(gemini_provider):
+    _use_fake_client(gemini_provider, FakeGeminiResponse(text=None))
+    with pytest.raises(GeminiResponseError, match="bos"):
+        gemini_provider.generate("oku")
+
+
+def test_gemini_provider_reads_model_and_timeout_from_settings(monkeypatch):
+    settings = _settings_from_env(
+        monkeypatch, LLM_PROVIDER="gemini", GEMINI_API_KEY="test-key", GEMINI_VISION_MODEL="gemini-3.7-flash"
+    )
+    provider = get_llm_provider(settings)
+    assert isinstance(provider, GeminiLLMProvider)
+    assert provider.model == "gemini-3.7-flash"
+
+
+def test_gemini_embedding_provider_is_still_a_stub(monkeypatch):
+    settings = _settings_from_env(monkeypatch, EMBEDDING_PROVIDER="gemini", GEMINI_API_KEY="test-key")
+    provider = get_embedding_provider(settings)
+    assert isinstance(provider, GeminiEmbeddingProvider)
+    with pytest.raises(NotImplementedError):
+        provider.embed("merhaba")
