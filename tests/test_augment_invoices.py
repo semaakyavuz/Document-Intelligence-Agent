@@ -46,21 +46,20 @@ def _make_fake_dataset(base_dir: Path, count: int) -> list[str]:
     return stems
 
 
-def _run_augment_script(input_dir: Path, output_dir: Path, golden_dir: Path,
-                         per_image: int, golden_count: int, seed: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [
-            sys.executable, str(SCRIPT_PATH),
-            "--input-dir", str(input_dir),
-            "--output-dir", str(output_dir),
-            "--golden-dir", str(golden_dir),
-            "--per-image", str(per_image),
-            "--golden-count", str(golden_count),
-            "--seed", str(seed),
-        ],
-        capture_output=True,
-        text=True,
-    )
+def _run_augment_script(input_dir: Path, output_dir: Path, golden_dir: Path | None,
+                         per_image: int, golden_count: int, seed: int,
+                         cwd: Path | None = None) -> subprocess.CompletedProcess:
+    args = [
+        sys.executable, str(SCRIPT_PATH),
+        "--input-dir", str(input_dir),
+        "--output-dir", str(output_dir),
+        "--per-image", str(per_image),
+        "--golden-count", str(golden_count),
+        "--seed", str(seed),
+    ]
+    if golden_dir is not None:
+        args += ["--golden-dir", str(golden_dir)]
+    return subprocess.run(args, capture_output=True, text=True, cwd=cwd)
 
 
 def test_augment_invoices_generates_expected_files(tmp_path):
@@ -145,3 +144,24 @@ def test_golden_set_is_stable_across_seeds(tmp_path):
     golden_with_seed_2 = golden_stems_for_seed(999, "run_seed_999")
 
     assert golden_with_seed_1 == golden_with_seed_2
+
+
+def test_golden_dir_defaults_to_subfolder_of_output_dir_not_fixed_path(tmp_path):
+    """--golden-dir verilmezse golden set <output-dir>/golden'a yazilmali, calisma dizinindeki
+    sabit data/golden'a DEGIL. Gecmiste yasanan kaza: --golden-dir'in varsayilani sabit
+    "data/golden" oldugu icin, sadece --output-dir'i degistiren (scratch/deneme amacli) bir
+    kosu bile gercek CI golden setinin uzerine sessizce yaziyordu."""
+    input_dir = tmp_path / "synthetic"
+    output_dir = tmp_path / "custom_output"
+    cwd = tmp_path  # gercek proje kokunden bagimsiz calistir: sabit yola kacarsa burada yakalanir
+
+    _make_fake_dataset(input_dir, count=3)
+    result = _run_augment_script(input_dir, output_dir, golden_dir=None,
+                                  per_image=1, golden_count=2, seed=7, cwd=cwd)
+    assert result.returncode == 0, result.stderr
+
+    derived_golden_dir = output_dir / "golden"
+    assert list((derived_golden_dir / "images").glob("*.png"))
+    assert list((derived_golden_dir / "labels").glob("*.json"))
+
+    assert not (cwd / "data" / "golden").exists()

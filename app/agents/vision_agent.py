@@ -82,7 +82,9 @@ Field guide:
 - vat_rate: a fraction, so a 20 percent VAT column is written as 0.2.
 - subtotal, vat_total, grand_total: the totals printed at the bottom of the invoice.
 
-Numbers must be plain JSON numbers with a dot decimal separator. Keep Turkish characters in names exactly as they appear on the invoice. If a value is unreadable, use null."""
+Numbers must be plain JSON numbers with a dot decimal separator. Keep Turkish characters in names exactly as they appear on the invoice. If a value is unreadable, use null.
+
+Türkçe özel karakterleri (ç, ğ, ı, ö, ş, ü ve büyük halleri Ç, Ğ, İ, Ö, Ş, Ü) gördüğün şekliyle birebir koru, ASCII karşılığına (c, g, i, o, s, u) çevirme."""
 
     # Gecerli bir fatura JSON'u 500 token'i gecmez; model donguye girerse burada kesilir,
     # zaman asimina kadar bosuna beklenmez.

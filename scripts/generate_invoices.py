@@ -135,10 +135,12 @@ class InvoiceRenderer:
     WIDTH, HEIGHT = 1240, 1754  # A4, 150dpi civari
 
     def __init__(self, font_dir: Path | None = None):
-        self.font_regular, self.font_bold = self._load_fonts(font_dir)
+        self._font_reg_path, self._font_bold_path = self._resolve_font_paths(font_dir)
+        self.font_regular = self._font(22, bold=False)
+        self.font_bold = self._font(26, bold=True)
 
     @staticmethod
-    def _load_fonts(font_dir: Path | None):
+    def _resolve_font_paths(font_dir: Path | None) -> tuple[Path | None, Path | None]:
         candidates = []
         if font_dir:
             candidates.append((font_dir / "DejaVuSans.ttf", font_dir / "DejaVuSans-Bold.ttf"))
@@ -152,11 +154,18 @@ class InvoiceRenderer:
         candidates.append((Path("/Library/Fonts/Arial.ttf"), Path("/Library/Fonts/Arial Bold.ttf")))
         for reg, bold in candidates:
             if reg.exists() and bold.exists():
-                return ImageFont.truetype(str(reg), 22), ImageFont.truetype(str(bold), 26)
+                return reg, bold
         print("UYARI: DejaVuSans.ttf bulunamadi, Turkce karakterler duzgun gorunmeyebilir. "
               "assets/fonts/ klasorune DejaVuSans.ttf ve DejaVuSans-Bold.ttf ekleyin.")
-        default = ImageFont.load_default()
-        return default, default
+        return None, None
+
+    def _font(self, size: int, bold: bool = False):
+        """Sablonlar farkli boyutta yazi tipi kullanabilsin diye (letterhead'in buyuk
+        basligi, compact'in kucuk yazisi gibi) yolu bir kere cozup istenen boyutta yeniden acar."""
+        path = self._font_bold_path if bold else self._font_reg_path
+        if path is None:
+            return ImageFont.load_default(size=size)
+        return ImageFont.truetype(str(path), size)
 
     def render_classic(self, inv: Invoice) -> Image.Image:
         img = Image.new("RGB", (self.WIDTH, self.HEIGHT), "white")
@@ -198,13 +207,139 @@ class InvoiceRenderer:
 
         return img
 
+    def render_compact(self, inv: Invoice) -> Image.Image:
+        """Daha sikisik bir duzen: ust bilgi iki sutunda yan yana, tablo basliklari
+        ters sirada (Tutar en solda, Aciklama en sagda), daha kucuk yazi tipi."""
+        img = Image.new("RGB", (self.WIDTH, self.HEIGHT), "white")
+        d = ImageDraw.Draw(img)
+        reg, bold = self._font(16, bold=False), self._font(18, bold=True)
+        left_x, right_x = 60, self.WIDTH // 2 + 20
+        y = 50
 
-def main():
+        d.text((self.WIDTH // 2 - 40, y), "FATURA", font=bold, fill="black")
+        y += 32
+        d.text((left_x, y), f"No: {inv.invoice_no}", font=reg, fill="black")
+        d.text((right_x, y), f"Tarih: {inv.invoice_date}", font=reg, fill="black")
+        y += 36
+
+        d.text((left_x, y), "Satıcı", font=bold, fill="black")
+        d.text((right_x, y), "Alıcı", font=bold, fill="black")
+        y += 22
+        d.text((left_x, y), inv.seller_name, font=reg, fill="black")
+        d.text((right_x, y), inv.buyer_name, font=reg, fill="black")
+        y += 20
+        d.text((left_x, y), inv.seller_address, font=reg, fill="black")
+        d.text((right_x, y), inv.buyer_address, font=reg, fill="black")
+        y += 20
+        d.text((left_x, y), f"Vergi No: {inv.seller_tax_no}", font=reg, fill="black")
+        y += 36
+
+        # Basliklar ters sirada: Tutar en solda, Aciklama en sagda.
+        headers = ["Tutar", "KDV%", "Birim Fiyat", "Miktar", "Açıklama"]
+        col_x = [60, 220, 340, 520, 660]
+        for h, x in zip(headers, col_x):
+            d.text((x, y), h, font=bold, fill="black")
+        y += 22
+        d.line((60, y, self.WIDTH - 60, y), fill="black", width=1)
+        y += 10
+
+        for item in inv.items:
+            values = {
+                "Açıklama": item.description,
+                "Miktar": str(item.quantity),
+                "Birim Fiyat": f"{item.unit_price:.2f}",
+                "KDV%": f"%{int(item.vat_rate * 100)}",
+                "Tutar": f"{item.line_total:.2f}",
+            }
+            for h, x in zip(headers, col_x):
+                d.text((x, y), values[h], font=reg, fill="black")
+            y += 24
+
+        y += 14
+        d.line((500, y, self.WIDTH - 60, y), fill="black", width=1)
+        y += 14
+        d.text((500, y), f"Ara Toplam: {inv.subtotal:.2f} TL", font=reg, fill="black"); y += 22
+        d.text((500, y), f"KDV Toplam: {inv.vat_total:.2f} TL", font=reg, fill="black"); y += 22
+        d.text((500, y), f"Genel Toplam: {inv.grand_total:.2f} TL", font=bold, fill="black")
+
+        return img
+
+    def render_letterhead(self, inv: Invoice) -> Image.Image:
+        """Buyuk renkli sirket antetli kagidi hissi: satici adi buyuk/koyu mavi,
+        altinda ince cizgi, FATURA basligi sag ustte, tablo hucreleri cerceveli."""
+        img = Image.new("RGB", (self.WIDTH, self.HEIGHT), "white")
+        d = ImageDraw.Draw(img)
+        letterhead_font = self._font(40, bold=True)
+        LETTERHEAD_COLOR = (30, 58, 95)  # siyah yerine koyu mavi-gri
+        y = 50
+
+        d.text((60, y), inv.seller_name, font=letterhead_font, fill=LETTERHEAD_COLOR)
+        d.text((self.WIDTH - 200, y + 10), "FATURA", font=self.font_bold, fill="black")
+        y += 60
+        d.line((60, y, self.WIDTH - 60, y), fill=LETTERHEAD_COLOR, width=3)
+        y += 20
+
+        d.text((60, y), inv.seller_address, font=self.font_regular, fill="black")
+        d.text((self.WIDTH - 320, y), f"Fatura No: {inv.invoice_no}", font=self.font_regular, fill="black")
+        y += 28
+        d.text((60, y), f"Vergi No: {inv.seller_tax_no}", font=self.font_regular, fill="black")
+        d.text((self.WIDTH - 320, y), f"Tarih: {inv.invoice_date}", font=self.font_regular, fill="black")
+        y += 50
+
+        d.text((60, y), "Alıcı:", font=self.font_bold, fill="black"); y += 30
+        d.text((60, y), inv.buyer_name, font=self.font_regular, fill="black"); y += 28
+        d.text((60, y), inv.buyer_address, font=self.font_regular, fill="black"); y += 50
+
+        headers = ["Açıklama", "Miktar", "Birim Fiyat", "KDV%", "Tutar"]
+        col_edges = [60, 560, 700, 920, 1040, self.WIDTH - 60]
+        row_height = 36
+
+        for x_start, x_end, h in zip(col_edges, col_edges[1:], headers):
+            d.rectangle((x_start, y, x_end, y + row_height), outline="black", width=1)
+            d.text((x_start + 6, y + 6), h, font=self.font_bold, fill="black")
+        y += row_height
+
+        for item in inv.items:
+            values = [
+                item.description, str(item.quantity), f"{item.unit_price:.2f}",
+                f"%{int(item.vat_rate * 100)}", f"{item.line_total:.2f}",
+            ]
+            for x_start, x_end, val in zip(col_edges, col_edges[1:], values):
+                d.rectangle((x_start, y, x_end, y + row_height), outline="black", width=1)
+                d.text((x_start + 6, y + 6), val, font=self.font_regular, fill="black")
+            y += row_height
+
+        y += 20
+        d.text((700, y), f"Ara Toplam: {inv.subtotal:.2f} TL", font=self.font_regular, fill="black"); y += 30
+        d.text((700, y), f"KDV Toplam: {inv.vat_total:.2f} TL", font=self.font_regular, fill="black"); y += 30
+        d.text((700, y), f"Genel Toplam: {inv.grand_total:.2f} TL", font=self.font_bold, fill="black")
+
+        return img
+
+
+TEMPLATES = {
+    "classic": InvoiceRenderer.render_classic,
+    "compact": InvoiceRenderer.render_compact,
+    "letterhead": InvoiceRenderer.render_letterhead,
+}
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--count", type=int, default=20)
     parser.add_argument("--out", type=str, default="data/synthetic")
     parser.add_argument("--seed", type=int, default=None)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--template",
+        choices=["classic", "compact", "letterhead", "random"],
+        default="random",
+        help="Fatura gorsel sablonu; 'random' her fatura icin uctan birini rastgele secer.",
+    )
+    return parser
+
+
+def main():
+    args = build_arg_parser().parse_args()
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -219,7 +354,8 @@ def main():
 
     for i in range(1, args.count + 1):
         invoice = factory.generate()
-        img = renderer.render_classic(invoice)
+        template_name = args.template if args.template != "random" else random.choice(list(TEMPLATES))
+        img = TEMPLATES[template_name](renderer, invoice)
 
         img_path = out_dir / "images" / f"invoice_{i:04d}.png"
         label_path = out_dir / "labels" / f"invoice_{i:04d}.json"

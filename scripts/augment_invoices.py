@@ -18,12 +18,19 @@ Augment sadece goruntuyu bozar, faturanin verisi/matematigi degismedigi icin
 her versiyon orijinaliyle AYNI ground-truth JSON'u miras alir.
 
 Ayrica augment edilmis veri kumesinden sabit bir seed ile kucuk bir "golden set"
-ayrilir (data/golden/). Bu set CI/CD regresyon testlerinde kullanilir ve
---seed parametresi ne olursa olsun HER ZAMAN ayni dosyalari icerir.
+ayrilir (varsayilan olarak <output-dir>/golden/, --golden-dir ile degistirilebilir).
+Bu set CI/CD regresyon testlerinde kullanilir ve --seed parametresi ne olursa
+olsun HER ZAMAN ayni dosyalari icerir.
 
 Kullanim:
     python augment_invoices.py --input-dir data/synthetic --output-dir data/synthetic/augmented \
         --per-image 5 --golden-count 15 --seed 42
+
+Davranis degisikligi (2026-09-14): --golden-dir'in varsayilani onceden sabit "data/golden"
+idi; --output-dir farkli bir yere (orn. bir deneme/scratch klasoru) verildiginde bile golden
+set sessizce gercek data/golden'in UZERINE yaziliyordu. Artik --golden-dir belirtilmezse
+<output-dir>/golden kullanilir; gercek CI golden setini guncellemek isteniyorsa --golden-dir
+data/golden acikca verilmelidir.
 """
 
 import argparse
@@ -157,8 +164,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          help="generate_invoices.py ciktisinin bulundugu klasor (images/ ve labels/ icerir)")
     parser.add_argument("--output-dir", type=str, default="data/synthetic/augmented",
                          help="Augment edilmis goruntu/etiketlerin yazilacagi klasor")
-    parser.add_argument("--golden-dir", type=str, default="data/golden",
-                         help="CI/CD golden set'inin yazilacagi klasor")
+    parser.add_argument("--golden-dir", type=str, default=None,
+                         help="CI/CD golden set'inin yazilacagi klasor. Belirtilmezse "
+                              "<output-dir>/golden kullanilir (sabit 'data/golden' DEGIL); "
+                              "gercek CI golden setini guncellemek icin bunu acikca verin.")
     parser.add_argument("--per-image", type=int, default=5,
                          help="Her temiz goruntuden uretilecek augment sayisi")
     parser.add_argument("--golden-count", type=int, default=15,
@@ -218,7 +227,10 @@ def main() -> None:
 
     print(f"{len(clean_image_paths)} temiz goruntuden {len(generated_stems)} augment edilmis versiyon uretildi -> {output_dir}")
 
-    golden_dir = Path(args.golden_dir)
+    # --golden-dir verilmezse --output-dir'den turetilir; sabit bir yola ("data/golden")
+    # duser ve farkli bir --output-dir ile calisan bir kosu gercek CI golden setini
+    # sessizce ezerdi (bkz. modul ust bilgisindeki "Davranis degisikligi" notu).
+    golden_dir = Path(args.golden_dir) if args.golden_dir is not None else output_dir / "golden"
     selector = GoldenSetSelector(count=args.golden_count)
     golden_stems = selector.select(generated_stems)
     selector.copy_to_golden(
