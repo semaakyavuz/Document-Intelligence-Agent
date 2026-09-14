@@ -1,0 +1,4 @@
+Vergi numarası formatı: 10 haneli, tamamen sayısal bir değerdir ve başında sıfır bulunabilir.
+Şirketlerin vergi kimlik numarası budur; 11 haneli T.C. kimlik numarasıyla karıştırılmamalıdır.
+Bir faturada vergi numarası alanı 10 haneden kısa, uzun ya da harf içeriyorsa bu alan hatalı
+okunmuş veya yanlış çıkarılmış olabilir.

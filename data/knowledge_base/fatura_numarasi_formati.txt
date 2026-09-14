@@ -1,0 +1,4 @@
+Fatura numarası formatı: faturanın kesildiği yılın 4 haneli değeri ile başlar, ardından
+6 haneli bir sıra numarası gelir. Toplamda 10 haneli, tamamen sayısal bir değerdir; örnek:
+2025123456 (2025 yılında kesilmiş, sıra numarası 123456 olan fatura). Fatura numarasında
+harf, boşluk veya özel karakter bulunmaz.

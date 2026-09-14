@@ -5,7 +5,7 @@ Yerel Ollama sunucusu uzerinden LLM ve embedding.
 
 OllamaLLMProvider gercek HTTP cagrisi yapar (/api/generate). Gorsel verilirse
 dosya base64'e cevrilip "images" alaninda gonderilir; llava gibi gorsel destekli
-modeller bunu okur. Embedding tarafi henuz iskelet.
+modeller bunu okur. OllamaEmbeddingProvider /api/embeddings ucunu kullanir (RAG Agent icin).
 """
 
 import base64
@@ -133,9 +133,53 @@ class OllamaLLMProvider(LLMProvider):
 class OllamaEmbeddingProvider(EmbeddingProvider):
     """Ollama /api/embeddings ucu uzerinden vektor uretimi."""
 
-    def __init__(self, base_url: str):
-        self.base_url = base_url
+    EMBEDDINGS_PATH = "/api/embeddings"
+    DEFAULT_TIMEOUT_S = 60.0  # embedding, vision uretiminden cok daha hizli; kisa metinler icin yeterli
+
+    def __init__(self, base_url: str, model: str, timeout_s: float = DEFAULT_TIMEOUT_S):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout_s = timeout_s
 
     def embed(self, text: str) -> list[float]:
-        # TODO(faz 5, RAG): POST {base_url}/api/embeddings
-        raise NotImplementedError("OllamaEmbeddingProvider.embed RAG faziyla birlikte eklenecek")
+        payload = {"model": self.model, "prompt": text}
+
+        try:
+            response = requests.post(self.base_url + self.EMBEDDINGS_PATH, json=payload, timeout=self.timeout_s)
+        except requests.exceptions.ConnectionError as exc:
+            raise OllamaConnectionError(
+                f"Ollama sunucusuna ulasilamadi ({self.base_url}). "
+                "Ollama calisiyor mu? 'ollama serve' ile baslattin mi?"
+            ) from exc
+        except requests.exceptions.Timeout as exc:
+            raise OllamaTimeoutError(
+                f"Ollama {self.timeout_s:.0f} sn icinde cevap vermedi ({self.base_url})."
+            ) from exc
+
+        if not response.ok:
+            raise OllamaResponseError(
+                f"Ollama HTTP {response.status_code} dondu: {self._error_text(response)}. "
+                f"Model yuklu mu? 'ollama pull {self.model}' ile kontrol edin."
+            )
+
+        return self._extract_embedding(response)
+
+    @classmethod
+    def _extract_embedding(cls, response: requests.Response) -> list[float]:
+        """Govdeyi dogrular: JSON olmali, 'embedding' alani sayilardan olusan bir liste olmali."""
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise OllamaResponseError(f"Ollama JSON olmayan govde dondu: {response.text[:200]!r}") from exc
+        if not isinstance(body, dict):
+            raise OllamaResponseError(f"Ollama beklenmeyen govde tipi dondu: {type(body).__name__}")
+        embedding = body.get("embedding")
+        if not isinstance(embedding, list) or not embedding or not all(isinstance(x, (int, float)) for x in embedding):
+            raise OllamaResponseError(
+                f"Ollama cevabinda 'embedding' alani yok ya da gecersiz: {OllamaLLMProvider._preview(body)}"
+            )
+        return embedding
+
+    @staticmethod
+    def _error_text(response: requests.Response) -> str:
+        return OllamaLLMProvider._error_text(response)

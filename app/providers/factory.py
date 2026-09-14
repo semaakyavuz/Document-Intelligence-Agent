@@ -27,7 +27,7 @@ _LLM_BUILDERS: dict[str, Callable[[Settings], LLMProvider]] = {
 }
 
 _EMBEDDING_BUILDERS: dict[str, Callable[[Settings], EmbeddingProvider]] = {
-    "ollama": lambda s: OllamaEmbeddingProvider(base_url=s.OLLAMA_BASE_URL),
+    "ollama": lambda s: OllamaEmbeddingProvider(base_url=s.OLLAMA_BASE_URL, model=s.OLLAMA_EMBEDDING_MODEL),
     "gemini": lambda s: GeminiEmbeddingProvider(api_key=s.GEMINI_API_KEY),
 }
 

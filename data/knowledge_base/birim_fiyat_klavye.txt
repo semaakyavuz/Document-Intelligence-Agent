@@ -1,0 +1,3 @@
+Tipik birim fiyat aralığı: Klavye genellikle 300-2500 TL arasındadır. Bu aralık geniştir
+çünkü standart kablolu klavyeler alt sınıra, mekanik veya kablosuz oyuncu klavyeleri üst
+sınıra yakın fiyatlanır. 2500 TL üzerindeki klavye satırları ayrıca kontrol edilmelidir.

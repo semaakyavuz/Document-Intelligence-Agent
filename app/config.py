@@ -26,4 +26,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GEMINI_VISION_MODEL: str = "gemini-3.6-flash"  # goruntu destekli Gemini modeli
     LLM_TEMPERATURE: float = 0.0  # tum saglayicilar icin ortak: 0 = ayni girdi -> ayni cikti (tekrarlanabilir sonuc)
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"  # RAG icin embedding modeli (ollama pull nomic-embed-text)
+    CHROMA_DB_PATH: str = "data/chroma_db"  # yerel, persist edilen vektor veritabani klasoru
+    CHROMA_COLLECTION_NAME: str = "invoice_rules"
+    RAG_TOP_K: int = 3  # RAGAgent'in getirecegi en alakali kural sayisi
     DATABASE_URL: str = "sqlite:///./data/app.db"

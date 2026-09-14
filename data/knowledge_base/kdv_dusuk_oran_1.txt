@@ -1,0 +1,4 @@
+Türkiye'de en düşük KDV oranı olan yüzde 1, temel gıda maddeleri, gazete ve dergi gibi
+ürünlerde uygulanır. Bu proje kapsamındaki elektronik ve ofis/kırtasiye ürünlerinde (klavye,
+mouse, toner kartuşu, klasör, monitör kolu vb.) yüzde 1 oranı neredeyse hiç kullanılmaz; bir
+faturada bu tür bir ürün yüzde 1 KDV ile görünüyorsa bu durum ayrıca kontrol edilmelidir.

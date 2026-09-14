@@ -19,6 +19,7 @@ class PipelineState(BaseModel):
 
     image_path: str
     raw_extraction: dict | None = None        # Vision Agent'in ham ciktisi
+    retrieved_rules: list[str] = Field(default_factory=list)  # RAG Agent'in getirdigi ilgili kural metinleri
     validated_data: dict | None = None        # Validation Agent'in onayladigi veri
     validation_errors: list[str] = Field(default_factory=list)  # bos degilse retry dongusu tetiklenir
     retry_count: int = 0

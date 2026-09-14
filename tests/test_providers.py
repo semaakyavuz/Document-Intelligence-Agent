@@ -243,6 +243,74 @@ def test_ollama_truncated_response_logs_warning(monkeypatch, caplog):
     assert "kesildi" in caplog.text
 
 
+# --- OllamaEmbeddingProvider --------------------------------------------------
+
+def test_ollama_embedding_provider_reads_model_from_settings(monkeypatch):
+    settings = _settings_from_env(monkeypatch, EMBEDDING_PROVIDER="ollama", OLLAMA_EMBEDDING_MODEL="nomic-embed-text")
+    provider = get_embedding_provider(settings)
+    assert isinstance(provider, OllamaEmbeddingProvider)
+    assert provider.model == "nomic-embed-text"
+
+
+def test_ollama_embed_sends_model_and_prompt_returns_vector(monkeypatch):
+    captured: dict = {}
+
+    def fake_post(url, json, timeout):
+        captured.update(url=url, payload=json)
+        return FakeResponse(body={"embedding": [0.1, 0.2, 0.3]})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="nomic-embed-text")
+    vector = provider.embed("kural metni")
+
+    assert vector == [0.1, 0.2, 0.3]
+    assert captured["url"] == "http://localhost:11434/api/embeddings"
+    assert captured["payload"] == {"model": "nomic-embed-text", "prompt": "kural metni"}
+
+
+def test_ollama_embed_connection_error_gives_actionable_message(monkeypatch):
+    monkeypatch.setattr(requests, "post", lambda *a, **k: (_ for _ in ()).throw(requests.exceptions.ConnectionError()))
+    provider = OllamaEmbeddingProvider(base_url="http://localhost:1", model="nomic-embed-text")
+    with pytest.raises(OllamaConnectionError, match="ollama serve"):
+        provider.embed("kural metni")
+
+
+def test_ollama_embed_non_json_body_raises_response_error(monkeypatch):
+    monkeypatch.setattr(
+        requests, "post",
+        lambda *a, **k: FakeResponse(raises_on_json=True, raw_text="<html>502 Bad Gateway</html>"),
+    )
+    provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="nomic-embed-text")
+    with pytest.raises(OllamaResponseError, match="JSON olmayan"):
+        provider.embed("kural metni")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"done": True},  # 'embedding' alani hic yok
+        {"embedding": []},  # bos liste
+        {"embedding": "bozuk"},  # liste degil
+        {"embedding": [0.1, "iki", 0.3]},  # sayisal olmayan eleman
+    ],
+)
+def test_ollama_embed_invalid_embedding_field_raises_response_error(monkeypatch, body):
+    monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResponse(body=body))
+    provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="nomic-embed-text")
+    with pytest.raises(OllamaResponseError, match="embedding"):
+        provider.embed("kural metni")
+
+
+def test_ollama_embed_http_error_status_raises_response_error(monkeypatch):
+    monkeypatch.setattr(
+        requests, "post",
+        lambda *a, **k: FakeResponse(ok=False, status_code=404, body={"error": "model 'nomic-embed-text' not found"}),
+    )
+    provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="nomic-embed-text")
+    with pytest.raises(OllamaResponseError, match="not found"):
+        provider.embed("kural metni")
+
+
 # --- GeminiLLMProvider -------------------------------------------------------
 #
 # google-genai'nin gercek Client'ina baglanilmaz; provider._client sahte bir

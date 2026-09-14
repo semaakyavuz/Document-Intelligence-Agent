@@ -1,0 +1,5 @@
+Türkiye'de yüzde 10'luk indirimli KDV oranı bazı gıda, tekstil ve kitap/kırtasiye kalemlerinde
+uygulanır. Ofis Kağıdı A4 gibi baskı kağıdı ürünleri, eğitim ve yayıncılık amaçlı kullanıldığı
+durumlarda yüzde 10 oranına tabi tutulabilir. Bu oran, genel oran (yüzde 20) ile en düşük oran
+(yüzde 1) arasındaki ara kademedir; fatura üzerinde ürün açıkça bu kategoriye girmiyorsa genel
+oran esas alınmalıdır.

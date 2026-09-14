@@ -1,5 +1,7 @@
 graphify-out/
 .pytest_cache/
 __pycache__/
-data/
+data/*
+!data/knowledge_base/
 .env
+.venv/

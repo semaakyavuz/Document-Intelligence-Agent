@@ -13,6 +13,7 @@ pydantic
 pydantic-settings
 requests
 google-genai  # google-generativeai artik legacy (deprecated); Google'in resmi devam paketi
+chromadb  # RAG Agent: yerel, persist edilen vektor veritabani
 
 # testler
 pytest

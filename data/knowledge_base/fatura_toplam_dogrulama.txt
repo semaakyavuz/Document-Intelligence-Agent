@@ -1,0 +1,5 @@
+Fatura toplamları arasında şu ilişkiler geçerli olmalıdır: her kalemin satır toplamı
+(line_total), adet ile birim fiyatın çarpımına eşit olmalıdır. Ara toplam (subtotal), tüm
+kalemlerin satır toplamlarının toplamına eşit olmalıdır. Genel toplam (grand_total), ara
+toplam ile toplam KDV tutarının (vat_total) toplamına eşit olmalıdır. Bu toplamlar arasında
+tutarsızlık varsa, faturanın yanlış okunmuş olma ihtimali yüksektir.

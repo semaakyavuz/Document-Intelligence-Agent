@@ -1,0 +1,3 @@
+Tipik birim fiyat aralıkları: Ofis Kağıdı A4 (bir paket/koli için) genellikle 150-450 TL
+arasındadır. Klasör (adet başına) genellikle 15-60 TL arasındadır. Bu aralıkların dışında
+kalan, özellikle çok yüksek birim fiyatlı satırlar ayrıca kontrol edilmelidir.
