@@ -16,6 +16,6 @@ class GroqLLMProvider(LLMProvider):
             raise ValueError("GROQ_API_KEY tanimli degil; .env dosyasina ekleyin")
         self.api_key = api_key
 
-    def generate(self, prompt: str, image_path: str | None = None) -> str:
+    def generate(self, prompt: str, image_path: str | None = None, max_tokens: int | None = None) -> str:
         # TODO(faz 4): groq SDK ile chat.completions; image_path varsa vision modeli ve image_url icerigi kullan.
         raise NotImplementedError("GroqLLMProvider.generate 4. fazda eklenecek")

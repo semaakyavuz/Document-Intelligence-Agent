@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: ProviderName = "ollama"
     EMBEDDING_PROVIDER: ProviderName = "ollama"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_VISION_MODEL: str = "llava"  # gorsel okuyabilen bir model olmali (ollama list ile kontrol edin)
+    OLLAMA_TIMEOUT_S: float = 600  # CPU'da gorsel model bir fatura icin 5 dakikayi asabilir
     GROQ_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
     DATABASE_URL: str = "sqlite:///./data/app.db"

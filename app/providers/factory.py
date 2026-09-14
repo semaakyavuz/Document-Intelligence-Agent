@@ -14,7 +14,9 @@ from app.providers.groq_provider import GroqLLMProvider
 from app.providers.ollama_provider import OllamaEmbeddingProvider, OllamaLLMProvider
 
 _LLM_BUILDERS: dict[str, Callable[[Settings], LLMProvider]] = {
-    "ollama": lambda s: OllamaLLMProvider(base_url=s.OLLAMA_BASE_URL),
+    "ollama": lambda s: OllamaLLMProvider(
+        base_url=s.OLLAMA_BASE_URL, model=s.OLLAMA_VISION_MODEL, timeout_s=s.OLLAMA_TIMEOUT_S
+    ),
     "groq": lambda s: GroqLLMProvider(api_key=s.GROQ_API_KEY),
     "gemini": lambda s: GeminiLLMProvider(api_key=s.GEMINI_API_KEY),
 }

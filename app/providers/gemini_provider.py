@@ -19,7 +19,7 @@ class GeminiLLMProvider(LLMProvider):
     def __init__(self, api_key: str | None):
         self.api_key = _require_api_key(api_key)
 
-    def generate(self, prompt: str, image_path: str | None = None) -> str:
+    def generate(self, prompt: str, image_path: str | None = None, max_tokens: int | None = None) -> str:
         # TODO(faz 4): google-genai SDK ile generate_content; image_path varsa gorseli part olarak ekle.
         raise NotImplementedError("GeminiLLMProvider.generate 4. fazda eklenecek")
 
