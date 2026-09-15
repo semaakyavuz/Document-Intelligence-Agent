@@ -1,20 +1,22 @@
 """
-RAGAgent'in sorgu kurma ve getirme (retrieval) mantigini test eder.
+RAGAgent'in sorgu kurma mantigini ve MCP client davranisini test eder.
 
-Gercek Ollama'ya baglanmaz (FakeEmbeddingProvider). ChromaDB gercek ve yereldir
-(tmp_path'e persist eder) -- bu "dis servis" sayilmaz, tamamen yerel/embedded bir
-veritabani; boylece RAGAgent'in .query() cagrisini dogru yapip yapmadigi da
-gercekten sinanmis olur, sadece mock edilmez.
+Gercek Ollama'ya ve gercek app/mcp/rules_server.py'ye (factory'den Ollama kurar)
+hic baglanmaz: RAGAgent, server_command/server_args ile hafif, tek dosyalik sahte
+bir MCP server'a (tmp_path'e yazilir, gercek bir alt surec olarak baslatilir)
+yonlendirilir. Boylece MCP stdio protokolu gercekten sinanmis olur, sadece
+Ollama/ChromaDB'ye ihtiyac duyulmaz.
 
-FakeEmbeddingProvider basit bir "bag of keyword" vektoru uretir: sabit bir kelime
-listesindeki her kelime metinde geciyorsa 1, gecmiyorsa 0. Boylece hangi belgenin
-sorguya en yakin oldugu onceden kesin olarak bilinir (ties olmadan).
+app/mcp/rules_server.py'nin kendisi (embed+ChromaDB mantigi) tests/test_rules_server.py'de
+test edilir.
 """
+
+import asyncio
+import sys
 
 import pytest
 
-from app.agents.rag_agent import KnowledgeBaseEmptyError, RAGAgent, RuleQueryBuilder
-from app.providers.base import EmbeddingProvider, ProviderUnavailableError
+from app.agents.rag_agent import RAGAgent, RuleQueryBuilder, RuleQueryError
 from app.state import PipelineState
 
 VALID_EXTRACTION = {
@@ -26,43 +28,41 @@ VALID_EXTRACTION = {
     ],
 }
 
+# query_rules(query, top_k): query icinde "__bos__" gecerse ToolError firlatir (RAGAgent'in
+# bunu RuleQueryError'a cevirdigini test etmek icin); aksi halde her cagriyi ve top_k'yi
+# kural metnine gomup dondurur (RAGAgent'in dogru query/top_k gonderdigini kanitlamak icin).
+FAKE_SERVER_SOURCE = '''
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
-class FakeEmbeddingProvider(EmbeddingProvider):
-    """Aga cikmaz. VOCAB'daki her kelime metinde varsa 1, yoksa 0 olan sabit uzunlukta vektor uretir."""
-
-    VOCAB = ["klavye", "mouse", "kağıt", "kdv", "vergi", "fatura", "toner"]
-
-    def __init__(self):
-        self.calls: list[str] = []
-
-    def embed(self, text: str) -> list[float]:
-        self.calls.append(text)
-        lowered = text.lower()
-        return [1.0 if word in lowered else 0.0 for word in self.VOCAB]
+server = MCPServer("fake-rules")
 
 
-class FailingEmbeddingProvider(EmbeddingProvider):
-    """embed() her zaman ProviderUnavailableError firlatir (baglanti yokmus gibi)."""
-
-    def embed(self, text: str) -> list[float]:
-        raise ProviderUnavailableError("Ollama sunucusuna ulasilamadi")
-
-
-def _seed_collection(chroma_path, collection_name: str, docs: dict[str, str]) -> None:
-    """docs'u FakeEmbeddingProvider ile embed edip belirtilen yola/koleksiyona yazar."""
-    import chromadb
-
-    provider = FakeEmbeddingProvider()
-    client = chromadb.PersistentClient(path=str(chroma_path))
-    collection = client.get_or_create_collection(name=collection_name, embedding_function=None)
-    collection.add(
-        ids=list(docs.keys()),
-        embeddings=[provider.embed(text) for text in docs.values()],
-        documents=list(docs.values()),
-    )
+@server.tool()
+def query_rules(query: str, top_k: int = 3) -> list[str]:
+    if "__bos__" in query:
+        raise ToolError("Bilgi tabani bos. Once 'python scripts/index_knowledge_base.py' calistirin.")
+    return [f"kural[{i}] icin sorgu: {query} (top_k={top_k})" for i in range(top_k)]
 
 
-# --- RuleQueryBuilder --------------------------------------------------------
+if __name__ == "__main__":
+    server.run()
+'''
+
+
+@pytest.fixture
+def fake_server_args(tmp_path) -> list[str]:
+    """Sahte MCP server'i tmp_path'e yazar; RAGAgent'a server_args olarak verilecek yolu dondurur."""
+    path = tmp_path / "fake_rules_server.py"
+    path.write_text(FAKE_SERVER_SOURCE, encoding="utf-8")
+    return [str(path)]
+
+
+def _agent(fake_server_args, **kwargs) -> RAGAgent:
+    return RAGAgent(server_command=sys.executable, server_args=fake_server_args, **kwargs)
+
+
+# --- RuleQueryBuilder (degismedi) ---------------------------------------------
 
 def test_query_builder_combines_items_vat_and_ids():
     query = RuleQueryBuilder().build(VALID_EXTRACTION)
@@ -93,68 +93,59 @@ def test_query_builder_returns_empty_string_for_unusable_extraction():
     assert RuleQueryBuilder().build({"items": []}) == ""
 
 
-# --- RAGAgent.run() -----------------------------------------------------------
+# --- RAGAgent kisa devre (MCP'ye hic dokunmaz) --------------------------------
 
-def test_returns_empty_rules_when_raw_extraction_is_none(tmp_path):
-    provider = FakeEmbeddingProvider()
-    agent = RAGAgent(provider, chroma_path=str(tmp_path), collection_name="rules", top_k=3)
-
+def test_returns_empty_rules_when_raw_extraction_is_none():
+    # Kasitli gecersiz bir komut: MCP cagrisi gercekten denenseydi bu patlardi.
+    agent = RAGAgent(server_command="komut-yok-boyle-bir-sey")
     result = agent.run(PipelineState(image_path="x.png", raw_extraction=None))
-
     assert result.retrieved_rules == []
-    assert provider.calls == []  # embed() hic cagrilmadi
 
 
-def test_returns_empty_rules_when_query_text_is_empty(tmp_path):
-    provider = FakeEmbeddingProvider()
-    agent = RAGAgent(provider, chroma_path=str(tmp_path), collection_name="rules", top_k=3)
-
+def test_returns_empty_rules_when_query_text_is_empty():
+    agent = RAGAgent(server_command="komut-yok-boyle-bir-sey")
     result = agent.run(PipelineState(image_path="x.png", raw_extraction={"foo": "bar"}))
-
     assert result.retrieved_rules == []
-    assert provider.calls == []
 
 
-def test_raises_when_knowledge_base_not_indexed(tmp_path):
-    provider = FakeEmbeddingProvider()
-    agent = RAGAgent(provider, chroma_path=str(tmp_path), collection_name="rules", top_k=3)
+# --- RAGAgent MCP round-trip (sahte server, gercek stdio) ----------------------
 
-    with pytest.raises(KnowledgeBaseEmptyError, match="index_knowledge_base"):
-        agent.run(PipelineState(image_path="x.png", raw_extraction=VALID_EXTRACTION))
+def test_run_sends_query_and_top_k_and_fills_retrieved_rules(fake_server_args):
+    agent = _agent(fake_server_args, top_k=2)
+    extraction = {"items": [{"description": "Klavye"}]}
 
+    result = agent.run(PipelineState(image_path="x.png", raw_extraction=extraction))
 
-def test_retrieves_the_single_most_relevant_rule(tmp_path):
-    _seed_collection(tmp_path, "rules", {
-        "d_klavye": "Klavye ile ilgili kural metni.",
-        "d_kagit": "Kağıt ile ilgili kural metni.",
-        "d_toner": "Toner ile ilgili kural metni.",
-    })
-    agent = RAGAgent(FakeEmbeddingProvider(), chroma_path=str(tmp_path), collection_name="rules", top_k=1)
-
-    result = agent.run(PipelineState(image_path="x.png", raw_extraction={"items": [{"description": "Klavye"}]}))
-
-    assert result.retrieved_rules == ["Klavye ile ilgili kural metni."]
+    assert len(result.retrieved_rules) == 2
+    assert "Ürünler: Klavye." in result.retrieved_rules[0]
+    assert "top_k=2" in result.retrieved_rules[0]
 
 
-def test_retrieves_up_to_top_k_rules_and_does_not_mutate_input_state(tmp_path):
-    _seed_collection(tmp_path, "rules", {
-        "d_klavye": "Klavye ile ilgili kural metni.",
-        "d_kagit": "Kağıt ile ilgili kural metni.",
-        "d_toner": "Toner ile ilgili kural metni.",
-    })
-    agent = RAGAgent(FakeEmbeddingProvider(), chroma_path=str(tmp_path), collection_name="rules", top_k=3)
+def test_run_does_not_mutate_input_state(fake_server_args):
+    agent = _agent(fake_server_args, top_k=1)
     original = PipelineState(image_path="x.png", raw_extraction={"items": [{"description": "Klavye"}]})
 
     result = agent.run(original)
 
-    assert len(result.retrieved_rules) == 3
-    assert "Klavye ile ilgili kural metni." in result.retrieved_rules
+    assert len(result.retrieved_rules) == 1
     assert original.retrieved_rules == []  # model_copy: girdi degismedi
 
 
-def test_provider_error_is_not_swallowed(tmp_path):
-    _seed_collection(tmp_path, "rules", {"d1": "herhangi bir kural metni."})
-    agent = RAGAgent(FailingEmbeddingProvider(), chroma_path=str(tmp_path), collection_name="rules", top_k=1)
+def test_run_raises_rule_query_error_when_tool_reports_error(fake_server_args):
+    agent = _agent(fake_server_args)
+    extraction = {"items": [{"description": "__bos__"}]}
 
-    with pytest.raises(ProviderUnavailableError):
-        agent.run(PipelineState(image_path="x.png", raw_extraction=VALID_EXTRACTION))
+    with pytest.raises(RuleQueryError, match="index_knowledge_base"):
+        agent.run(PipelineState(image_path="x.png", raw_extraction=extraction))
+
+
+def test_arun_is_the_real_async_path(fake_server_args):
+    """app/graph.py'nin rag_node'u run() yerine dogrudan arun()'u await ediyor; bu da calismali.
+
+    pytest-asyncio eklemeden test etmek icin asyncio.run() ile senkron bir test icinden cagrilir."""
+    agent = _agent(fake_server_args, top_k=1)
+    extraction = {"items": [{"description": "Klavye"}]}
+
+    result = asyncio.run(agent.arun(PipelineState(image_path="x.png", raw_extraction=extraction)))
+
+    assert len(result.retrieved_rules) == 1

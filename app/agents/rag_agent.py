@@ -1,24 +1,42 @@
 """
 rag_agent.py
 
-Vision Agent'in cikardigi verilerden bir sorgu metni kurar, data/knowledge_base/
-altindaki kural belgelerinin ChromaDB'de indekslenmis halinden en alakali olanlari
-getirir ve state.retrieved_rules'a yazar.
+Vision Agent'in cikardigi verilerden bir sorgu metni kurar ve app/mcp/rules_server.py'yi
+bir MCP stdio subprocess'i olarak baslatip query_rules aracini cagirir. Embed+ChromaDB
+sorgulama mantigi artik tamamen server tarafindadir (bkz. app/mcp/rules_server.py);
+RAGAgent yalnizca sorgu metni kurma ve MCP client protokolu ile ilgilenir.
 
-RAGAgent bir LLMProvider degil bir EmbeddingProvider + yerel bir vektor veritabani
-kullanir; bu yuzden BaseAgent.__init__'i (llm_provider bekler) miras almiyor, kendi
-imzasini tanimliyor. BaseAgent.__init__ soyut olmadigi icin bu gecerli bir ABC kullanimi.
+RAGAgent de BaseAgent.__init__'i (llm_provider bekler) miras almiyor: bir
+EmbeddingProvider/ChromaDB'ye artik dogrudan ihtiyaci yok, MCP server'i nasil
+baslatacagini biliyor. BaseAgent.__init__ soyut olmadigi icin bu gecerli bir
+ABC kullanimi (ayni gerekce daha once de kullanildi).
+
+Async/sync koprusu: gercek mantik arun()'da (native async, MCP client'i asyncio
+uzerine kurulu). run(), BaseAgent'in senkron sozlesmesini korumak icin
+asyncio.run(self.arun(state)) ile koprü kurar - run_pipeline_manual.py gibi duz
+senkron cagiranlar hic degismeden calismaya devam eder. LangGraph'in async node
+destegi oldugu icin app/graph.py'deki rag_node dogrudan arun()'u await eder,
+run()'daki asyncio.run() koprusunu (ic ice event loop calistirma riskini) hic
+kullanmaz.
 """
 
-import chromadb
+import asyncio
+import sys
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 from app.agents.base import BaseAgent
-from app.providers.base import EmbeddingProvider
 from app.state import PipelineState
 
 
-class KnowledgeBaseEmptyError(RuntimeError):
-    """Koleksiyon hic indekslenmemis (once scripts/index_knowledge_base.py calistirilmali)."""
+class RuleQueryError(RuntimeError):
+    """query_rules MCP araci hata dondurdu (bilgi tabani bos, saglayici hatasi, vb.).
+
+    MCP sinir hattinin otesinde orijinal exception tipini (KnowledgeBaseEmptyError,
+    ProviderError alt siniflari...) birebir yeniden kurmak pratik degil; server bu
+    hatalari ToolError'a cevirip mesaji koruyarak iletir (bkz. rules_server.py),
+    client tarafinda tek, birlesik bu tip olarak yeniden firlatilir."""
 
 
 class RuleQueryBuilder:
@@ -64,24 +82,25 @@ class RuleQueryBuilder:
 
 
 class RAGAgent(BaseAgent):
-    """Cikarilan fatura verisiyle ilgili kural belgelerini yerel bilgi tabanindan getirir."""
+    """Cikarilan fatura verisiyle ilgili kural belgelerini bir MCP server'dan getirir."""
 
     def __init__(
         self,
-        embedding_provider: EmbeddingProvider,
-        chroma_path: str,
-        collection_name: str,
         top_k: int = 3,
         query_builder: RuleQueryBuilder | None = None,
+        server_command: str | None = None,
+        server_args: list[str] | None = None,
     ):
-        self.embedding_provider = embedding_provider
         self.top_k = top_k
         self._query_builder = query_builder or RuleQueryBuilder()
-        # Client/koleksiyon tek seferde acilir; her run() cagrisinda yeniden baglanilmaz.
-        self._client = chromadb.PersistentClient(path=str(chroma_path))
-        self._collection = self._client.get_or_create_collection(name=collection_name, embedding_function=None)
+        # Varsayilan: bu Python yorumlayicisiyla "python -m app.mcp.rules_server" calistir.
+        self._server_command = server_command or sys.executable
+        self._server_args = server_args if server_args is not None else ["-m", "app.mcp.rules_server"]
 
     def run(self, state: PipelineState) -> PipelineState:
+        return asyncio.run(self.arun(state))
+
+    async def arun(self, state: PipelineState) -> PipelineState:
         if not state.raw_extraction:
             # Vision Agent basarisiz olmus ya da henuz calismamis: sorgulanacak bir sey yok,
             # bu bir hata degil; bos liste ile devam edilir.
@@ -91,14 +110,21 @@ class RAGAgent(BaseAgent):
         if not query_text:
             return state.model_copy(update={"retrieved_rules": []})
 
-        if self._collection.count() == 0:
-            raise KnowledgeBaseEmptyError(
-                "Bilgi tabani bos. Once 'python scripts/index_knowledge_base.py' calistirin."
-            )
-
-        # Baglanti hatalari burada yutulmaz: VisionAgent'taki ayni kuralin aynisi.
-        query_embedding = self.embedding_provider.embed(query_text)
-        result = self._collection.query(query_embeddings=[query_embedding], n_results=self.top_k)
-
-        retrieved_rules = result["documents"][0] if result["documents"] else []
+        retrieved_rules = await self._call_query_rules(query_text)
         return state.model_copy(update={"retrieved_rules": retrieved_rules})
+
+    async def _call_query_rules(self, query_text: str) -> list[str]:
+        params = StdioServerParameters(command=self._server_command, args=self._server_args)
+        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool("query_rules", {"query": query_text, "top_k": self.top_k})
+
+        # is_error kontrolu/raise, ic ice async with bloklarinin DISINDA yapilir: anyio'nun
+        # TaskGroup'u, bloklarin icinde firlatilan bir exception'i (Python 3.11+ ExceptionGroup
+        # gruplamasi yuzunden) sarmalayip cagirana ExceptionGroup olarak iletiyor - canlica
+        # yakalandi (pytest.raises(RuleQueryError) esleşmiyordu). Burada, task group tamamen
+        # kapandiktan sonra raise edilince RuleQueryError temiz haliyle propagate ediyor.
+        if result.is_error:
+            message = result.content[0].text if result.content else "query_rules basarisiz"
+            raise RuleQueryError(message)
+        return result.structured_content["result"]

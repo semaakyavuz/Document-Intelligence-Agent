@@ -22,7 +22,7 @@ from app.agents.report_agent import ReportAgent  # noqa: E402
 from app.agents.validation_agent import ValidationAgent  # noqa: E402
 from app.agents.vision_agent import VisionAgent  # noqa: E402
 from app.config import Settings  # noqa: E402
-from app.providers.factory import get_embedding_provider, get_llm_provider  # noqa: E402
+from app.providers.factory import get_llm_provider  # noqa: E402
 from app.state import PipelineState  # noqa: E402
 
 
@@ -51,12 +51,7 @@ def main() -> None:
     else:
         print(f"[1/4] VisionAgent     -> raw_extraction BOS (parse hatasi): {state.validation_errors}")
 
-    rag = RAGAgent(
-        embedding_provider=get_embedding_provider(settings),
-        chroma_path=settings.CHROMA_DB_PATH,
-        collection_name=settings.CHROMA_COLLECTION_NAME,
-        top_k=settings.RAG_TOP_K,
-    )
+    rag = RAGAgent(top_k=settings.RAG_TOP_K)
     state = rag.run(state)
     print(f"[2/4] RAGAgent        -> retrieved_rules dolduruldu ({len(state.retrieved_rules)} kural).")
 

@@ -14,6 +14,8 @@ pydantic-settings
 requests
 google-genai  # google-generativeai artik legacy (deprecated); Google'in resmi devam paketi
 chromadb  # RAG Agent: yerel, persist edilen vektor veritabani
+langgraph  # app/graph.py: dort ajani StateGraph olarak zincirler
+mcp  # app/mcp/rules_server.py: RAG kural sorgulamasi icin MCP server/client (resmi Python SDK, FastMCP dahil)
 
 # testler
 pytest
