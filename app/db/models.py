@@ -38,6 +38,22 @@ class InvoiceRecord(Base):
 
     full_report: Mapped[dict] = mapped_column(JSON)  # final_report'un tamami, aynen
 
+    @classmethod
+    def from_final_report(cls, image_filename: str, final_report: dict) -> "InvoiceRecord":
+        """ReportAgent'in urettigi final_report'u (bkz. app/agents/report_agent.py) bir
+        InvoiceRecord'a cevirir. scripts/save_pipeline_result.py ve app/api/main.py
+        ayni donusumu kullanir, mantik tek yerde tutulur."""
+        return cls(
+            image_filename=image_filename,
+            invoice_no=final_report.get("invoice_no"),
+            seller_name=final_report.get("seller_name"),
+            grand_total=final_report.get("grand_total"),
+            is_valid=final_report["is_valid"],
+            anomaly_count=final_report["anomaly_count"],
+            anomalies=final_report["anomalies"],
+            full_report=final_report,
+        )
+
     def __repr__(self) -> str:
         return (
             f"InvoiceRecord(id={self.id!r}, image_filename={self.image_filename!r}, "
