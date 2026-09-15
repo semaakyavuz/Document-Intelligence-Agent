@@ -32,4 +32,16 @@ class Settings(BaseSettings):
     CHROMA_DB_PATH: str = "data/chroma_db"  # yerel, persist edilen vektor veritabani klasoru
     CHROMA_COLLECTION_NAME: str = "invoice_rules"
     RAG_TOP_K: int = 3  # RAGAgent'in getirecegi en alakali kural sayisi
-    DATABASE_URL: str = "sqlite:///./data/app.db"
+
+    # docker-compose.yml'deki postgres servisiyle eslesir (bkz. o dosyadaki container_name:
+    # document-intelligence-postgres). Host portu 5434: bu makinede zaten baska bir projeden
+    # kalma "my-postgres" adli container 5433'u kullaniyor, catismamasi icin 5434 secildi.
+    POSTGRES_USER: str = "invoice_app"
+    POSTGRES_PASSWORD: str = "invoice_app"
+    POSTGRES_DB: str = "invoice_agent"
+    # Not: .env'deki DATABASE_URL, ${POSTGRES_USER} vb. ile yukaridaki uc alana referans
+    # verir (python-dotenv interpolasyonu, canlica dogrulandi) - sifre tek yerde tutulur.
+    # Buradaki Python varsayilani interpolasyona girmez (sadece .env dosyasindan okunan
+    # degerler interpolate edilir); bu yuzden .env hic yoksa diye kendi basina gecerli,
+    # yukaridaki varsayilanlarla eslesen duz bir URL olarak yazildi.
+    DATABASE_URL: str = "postgresql+psycopg://invoice_app:invoice_app@localhost:5434/invoice_agent"

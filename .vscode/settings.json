@@ -1,3 +1,15 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5434,
+            "driver": "PostgreSQL",
+            "name": "Document Intelligence Agent",
+            "database": "invoice_agent",
+            "username": "invoice_app"
+        }
+    ]
 }

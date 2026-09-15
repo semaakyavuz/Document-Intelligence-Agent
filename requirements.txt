@@ -16,6 +16,8 @@ google-genai  # google-generativeai artik legacy (deprecated); Google'in resmi d
 chromadb  # RAG Agent: yerel, persist edilen vektor veritabani
 langgraph  # app/graph.py: dort ajani StateGraph olarak zincirler
 mcp  # app/mcp/rules_server.py: RAG kural sorgulamasi icin MCP server/client (resmi Python SDK, FastMCP dahil)
+sqlalchemy  # app/db/: InvoiceRecord ORM modeli + engine/session
+psycopg[binary]  # PostgreSQL driver (psycopg2 degil: psycopg3 aktif gelistirilen resmi halef)
 
 # testler
 pytest
