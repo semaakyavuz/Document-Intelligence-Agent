@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     CHROMA_COLLECTION_NAME: str = "invoice_rules"
     RAG_TOP_K: int = 3  # RAGAgent'in getirecegi en alakali kural sayisi
 
+    # ValidationAgent.FormatCheck'in invoice_no/seller_tax_no'yu nasil denetleyecegi:
+    # strict_tr: tam 10 haneli sayisal format zorunlu (sadece Turk formati sentetik veride).
+    # lenient: sadece alan bos/anlamsiz degil mi bakar, format dayatmaz (varsayilan -
+    # gercek dunya/karma faturalarda ve public demo'da yabanci formatlari yanlislikla
+    # anomali diye isaretlememek icin).
+    FORMAT_PROFILE: Literal["strict_tr", "lenient"] = "lenient"
+
     # docker-compose.yml'deki postgres servisiyle eslesir (bkz. o dosyadaki container_name:
     # document-intelligence-postgres). Host portu 5434: bu makinede zaten baska bir projeden
     # kalma "my-postgres" adli container 5433'u kullaniyor, catismamasi icin 5434 secildi.

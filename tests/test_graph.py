@@ -45,6 +45,11 @@ FAKE_EXTRACTION = {
 }
 
 KLAVYE_RULE_TEXT = "Tipik birim fiyat aralığı: Klavye genellikle 300-2500 TL arasındadır."
+# PipelineState.retrieved_rules artik list[dict] ({"text","score","source"}) - LangGraph
+# node'lar arasinda state'i kendi ic mekanizmasiyla (schema(**input)) yeniden kuruyor
+# ve BUNU gercekten valide ediyor (canlica dogrulandi: duz string vermek ValidationError
+# firlatiyordu), model_copy()'nin validasyonu atlamasindan bagimsiz bir katman.
+KLAVYE_RULE = {"text": KLAVYE_RULE_TEXT, "score": 0.1, "source": "birim_fiyat_klavye"}
 
 
 class FakeLLMProvider(LLMProvider):
@@ -77,7 +82,7 @@ def fake_llm_provider():
 @pytest.fixture
 def graph(fake_llm_provider):
     settings = Settings(_env_file=None, RAG_TOP_K=3)
-    stub_rag_agent = StubRAGAgent(rules=[KLAVYE_RULE_TEXT])
+    stub_rag_agent = StubRAGAgent(rules=[KLAVYE_RULE])
     return build_pipeline_graph(settings=settings, llm_provider=fake_llm_provider, rag_agent=stub_rag_agent)
 
 
@@ -112,7 +117,7 @@ def test_vision_step_fills_raw_extraction(graph):
 
 def test_rag_step_fills_retrieved_rules(graph):
     steps = dict(_run_steps(graph))
-    assert KLAVYE_RULE_TEXT in steps["rag"]["retrieved_rules"]
+    assert KLAVYE_RULE in steps["rag"]["retrieved_rules"]
 
 
 def test_validation_step_fills_anomalies_and_is_valid(graph):

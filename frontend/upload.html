@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Fatura Yükle</title>
+<style>
+  :root {
+    --border: #d8dde3;
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --err: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1rem;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .subtitle { color: var(--muted); margin-bottom: 1.5rem; font-size: 0.9rem; }
+  nav a { color: var(--accent); text-decoration: none; font-size: 0.85rem; }
+
+  .tabs { display: flex; gap: 0.5rem; margin: 1.25rem 0 1rem; }
+  .tab-btn {
+    flex: 1;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .tab-btn.active { border-color: var(--accent); color: var(--accent); background: #eff6ff; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  #dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    background: var(--card);
+    padding: 2.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  #dropzone.drag-over { border-color: var(--accent); background: #eff6ff; }
+  #dropzone p { margin: 0.25rem 0; }
+  #dropzone .hint { color: var(--muted); font-size: 0.85rem; }
+  #fileInput { display: none; }
+
+  .samples { margin-top: 1.25rem; }
+  .samples .samples-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.5rem; }
+  .sample-cards { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .sample-card {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 10px;
+    padding: 0.5rem 0.75rem 0.5rem 0.5rem;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .sample-card:hover { border-color: var(--accent); }
+  .sample-card img { width: 44px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); }
+  .sample-card .name { font-size: 0.82rem; font-weight: 600; }
+  .sample-attribution { font-size: 0.75rem; color: var(--muted); margin-top: 0.6rem; }
+  .sample-attribution a { color: var(--accent); }
+
+  #steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+  }
+  .step-box {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    padding: 0.9rem 0.5rem;
+    text-align: center;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .step-box .label { font-weight: 600; font-size: 0.85rem; }
+  .step-box .status { font-size: 0.78rem; color: var(--muted); margin-top: 0.3rem; }
+  .step-box.done { background: #ecfdf5; border-color: var(--ok); }
+  .step-box.done .status { color: var(--ok); }
+
+  #resultCard, #errorCard {
+    display: none;
+    border-radius: 10px;
+    padding: 1.2rem;
+    margin-top: 1rem;
+  }
+  #resultCard {
+    background: var(--card);
+    border: 1px solid var(--border);
+  }
+  #resultCard h2 { margin-top: 0; font-size: 1.1rem; }
+  #resultCard dl { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.75rem; margin: 0.75rem 0; }
+  #resultCard dt { color: var(--muted); font-size: 0.85rem; }
+  #resultCard dd { margin: 0; font-size: 0.95rem; }
+  #resultCard ul { margin: 0.25rem 0 0; padding-left: 1.2rem; }
+  #resultCard li { font-size: 0.88rem; margin-bottom: 0.2rem; }
+  .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+  .badge.ok { background: #ecfdf5; color: var(--ok); }
+  .badge.warn { background: #fef2f2; color: var(--err); }
+
+  #errorCard {
+    background: #fef2f2;
+    border: 1px solid var(--err);
+    color: var(--err);
+  }
+
+  #newUploadBtn {
+    margin-top: 1rem;
+    border: 1px solid var(--border);
+    background: var(--card);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+
+  /* --- Toplu yukleme sekmesi --- */
+  #bulkInput { margin-bottom: 0.5rem; }
+  #bulkWarning {
+    display: none;
+    color: var(--err);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+  #bulkSubmitBtn {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    padding: 0.55rem 1.1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    margin-bottom: 1rem;
+  }
+  #bulkSubmitBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .secondary-btn {
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    padding: 0.5rem 0.9rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #bulkRows { display: flex; flex-direction: column; gap: 0.5rem; }
+  .bulk-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 8px;
+    padding: 0.55rem 0.8rem;
+    font-size: 0.85rem;
+  }
+  .bulk-row.done { border-color: var(--ok); background: #ecfdf5; }
+  .bulk-row.error { border-color: var(--err); background: #fef2f2; }
+  .bulk-row .bulk-file { font-weight: 600; }
+  .bulk-row .bulk-status { color: var(--muted); text-align: right; display: flex; align-items: center; gap: 0.4rem; }
+  .bulk-row.done .bulk-status { color: var(--ok); }
+  .bulk-row.error .bulk-status { color: var(--err); }
+  .bulk-remove {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 0 0.15rem;
+  }
+  .bulk-remove:hover { color: var(--err); }
+  #bulkSummary {
+    display: none;
+    margin-top: 1rem;
+    font-size: 0.88rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><a href="/static/dashboard.html">&larr; Panele dön</a></nav>
+  <h1>Fatura Yükle</h1>
+  <p class="subtitle">Bir fatura görseli seçin; Vision &rarr; RAG &rarr; Validation &rarr; Report ajanlarının ilerlemesini canlı izleyin.</p>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="single">Tek Fatura</button>
+    <button class="tab-btn" data-tab="bulk">Toplu Yükleme (en fazla 10)</button>
+  </div>
+
+  <!-- ================= Tek Fatura ================= -->
+  <div class="tab-panel active" id="panel-single">
+    <div id="dropzone">
+      <p><strong>Dosyayı buraya sürükleyin</strong> ya da tıklayıp seçin</p>
+      <p class="hint">PNG / JPG</p>
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+
+    <div class="samples">
+      <div class="samples-label">ya da örnek bir fatura dene:</div>
+      <div class="sample-cards" id="sampleCards">
+        <div class="sample-card" data-src="/static/samples/sentetik_ornek.png" data-name="sentetik_ornek.png">
+          <img src="/static/samples/sentetik_ornek.png" alt="Sentetik örnek fatura">
+          <span class="name">Sentetik Türkçe Fatura</span>
+        </div>
+        <div class="sample-card" data-src="/static/samples/gercek_dunya_ornek.jpg" data-name="gercek_dunya_ornek.jpg">
+          <img src="/static/samples/gercek_dunya_ornek.jpg" alt="Gerçek dünya örnek fatura">
+          <span class="name">Gerçek Dünya Faturası</span>
+        </div>
+      </div>
+      <p class="sample-attribution" id="sampleAttribution">
+        Gerçek dünya örneği:
+        <a href="https://www.kaggle.com/datasets/osamahosamabdellatif/high-quality-invoice-images-for-ocr" target="_blank" rel="noopener">
+          Kaggle - High-Quality Invoice Images for OCR (osamahosamabdellatif)</a>, Open Database License
+      </p>
+    </div>
+
+    <div id="steps">
+      <div class="step-box" data-step="vision"><div class="label">Vision</div><div class="status">Bekliyor</div></div>
+      <div class="step-box" data-step="rag"><div class="label">RAG</div><div class="status">Bekliyor</div></div>
+      <div class="step-box" data-step="validation"><div class="label">Validation</div><div class="status">Bekliyor</div></div>
+      <div class="step-box" data-step="report"><div class="label">Report</div><div class="status">Bekliyor</div></div>
+    </div>
+
+    <div id="resultCard">
+      <h2>Sonuç</h2>
+      <dl>
+        <dt>Fatura No</dt><dd id="rInvoiceNo">-</dd>
+        <dt>Satıcı</dt><dd id="rSeller">-</dd>
+        <dt>Tutar</dt><dd id="rTotal">-</dd>
+        <dt>Durum</dt><dd id="rValid">-</dd>
+      </dl>
+      <div id="rAnomaliesWrap" style="display:none;">
+        <dt style="color:var(--muted); font-size:0.85rem;">Anomaliler</dt>
+        <ul id="rAnomalies"></ul>
+      </div>
+    </div>
+
+    <div id="errorCard">İşlem başarısız: <span id="errorMessage"></span></div>
+
+    <button id="newUploadBtn" style="display:none;">Yeni fatura yükle</button>
+  </div>
+
+  <!-- ================= Toplu Yükleme ================= -->
+  <div class="tab-panel" id="panel-bulk">
+    <input type="file" id="bulkInput" accept="image/*" multiple>
+    <div id="bulkWarning">En fazla 10 fatura aynı anda yüklenebilir. Lütfen seçimi azaltın.</div>
+    <div style="margin-bottom: 0.75rem;">
+      <button id="bulkDemoBtn" class="secondary-btn">10 örnek faturayı topluca dene</button>
+      <span class="hint" style="margin-left: 0.4rem;">— kendi dosyan olmadan, sunucudaki hazır set ile</span>
+    </div>
+    <div><button id="bulkSubmitBtn" disabled>Yükle</button></div>
+    <div id="bulkRows"></div>
+    <div id="bulkSummary"></div>
+  </div>
+</div>
+
+<script>
+const STEP_LABELS = {
+  vision: "Görsel okundu",
+  rag: "Kurallar getirildi",
+  validation: "Doğrulandı",
+  report: "Rapor hazır",
+};
+const MAX_BULK_FILES = 10;
+
+/* ---------------- Sekmeler ---------------- */
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`panel-${btn.dataset.tab}`).classList.add("active");
+  });
+});
+
+/* ---------------- Tek Fatura ---------------- */
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+const stepsEl = document.getElementById("steps");
+const resultCard = document.getElementById("resultCard");
+const errorCard = document.getElementById("errorCard");
+const errorMessage = document.getElementById("errorMessage");
+const newUploadBtn = document.getElementById("newUploadBtn");
+
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("drag-over"); });
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag-over"));
+dropzone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropzone.classList.remove("drag-over");
+  if (e.dataTransfer.files.length > 0) uploadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length > 0) uploadFile(fileInput.files[0]);
+});
+newUploadBtn.addEventListener("click", resetUI);
+
+document.querySelectorAll(".sample-card").forEach((card) => {
+  card.addEventListener("click", async () => {
+    const src = card.dataset.src;
+    const name = card.dataset.name;
+    const blob = await (await fetch(src)).blob();
+    uploadFile(new File([blob], name, { type: blob.type || "image/png" }));
+  });
+});
+
+function resetUI() {
+  document.querySelectorAll(".step-box").forEach((box) => {
+    box.classList.remove("done");
+    box.querySelector(".status").textContent = "Bekliyor";
+  });
+  resultCard.style.display = "none";
+  errorCard.style.display = "none";
+  newUploadBtn.style.display = "none";
+  dropzone.style.display = "";
+  fileInput.value = "";
+}
+
+function markStepDone(step) {
+  const box = stepsEl.querySelector(`[data-step="${step}"]`);
+  if (!box) return;
+  box.classList.add("done");
+  box.querySelector(".status").textContent = STEP_LABELS[step] || "Tamamlandı";
+}
+
+function showResult(report) {
+  document.getElementById("rInvoiceNo").textContent = report.invoice_no ?? "-";
+  document.getElementById("rSeller").textContent = report.seller_name ?? "-";
+  document.getElementById("rTotal").textContent = report.grand_total != null ? `${report.grand_total} TL` : "-";
+
+  const validEl = document.getElementById("rValid");
+  validEl.innerHTML = report.is_valid
+    ? '<span class="badge ok">Geçerli</span>'
+    : '<span class="badge warn">Anomali var</span>';
+
+  const anomalies = report.anomalies || [];
+  const wrap = document.getElementById("rAnomaliesWrap");
+  const list = document.getElementById("rAnomalies");
+  list.innerHTML = "";
+  if (anomalies.length > 0) {
+    wrap.style.display = "";
+    anomalies.forEach((a) => {
+      const li = document.createElement("li");
+      li.textContent = a.message || JSON.stringify(a);
+      list.appendChild(li);
+    });
+  } else {
+    wrap.style.display = "none";
+  }
+
+  resultCard.style.display = "block";
+  newUploadBtn.style.display = "inline-block";
+}
+
+function showError(message) {
+  errorMessage.textContent = message;
+  errorCard.style.display = "block";
+  newUploadBtn.style.display = "inline-block";
+}
+
+async function uploadFile(file) {
+  resetUI();
+  dropzone.style.display = "none";
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  let response;
+  try {
+    response = await fetch("/invoices/stream", { method: "POST", body: formData });
+  } catch (err) {
+    showError("Sunucuya ulaşılamadı: " + err.message);
+    return;
+  }
+
+  if (!response.ok || !response.body) {
+    showError(`Sunucu hatası (HTTP ${response.status})`);
+    return;
+  }
+
+  for await (const payload of readSseEvents(response)) {
+    if (payload.step === "error") {
+      showError(payload.message || "Bilinmeyen hata");
+    } else if (payload.step === "final") {
+      showResult(payload.report);
+    } else {
+      markStepDone(payload.step);
+    }
+  }
+}
+
+/* ---------------- Ortak: SSE okuma ---------------- */
+async function* readSseEvents(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const rawEvent = buffer.slice(0, boundary).trim();
+      buffer = buffer.slice(boundary + 2);
+      if (!rawEvent.startsWith("data:")) continue;
+      try {
+        yield JSON.parse(rawEvent.slice(5).trim());
+      } catch {
+        /* bozuk satır, atla */
+      }
+    }
+  }
+}
+
+/* ---------------- Toplu Yükleme ----------------
+   <input multiple> tek bir dialog oturumunda (Ctrl/Shift ile) secilen dosyalar icin doğru
+   calisiyor - ama dialog HER YENIDEN ACILISINDA onceki secimin tamamini degistiriyor (bu
+   native tarayici davranisi, canlica dogrulandi). Kullanicinin "sadece son secileni
+   gosteriyor" sikayeti aslinda bunun sonucu: dosyalari ayri ayri seciyorsa her seferinde
+   oncekiler kayboluyordu. Cozum: secimleri kendi JS state'imizde (selectedBulkFiles)
+   biriktiriyoruz, native input'un FileList'ine degil ona guveniyoruz; her change'den sonra
+   input.value sifirlanir ki ayni dosya sonradan tekrar secilebilsin. */
+const bulkInput = document.getElementById("bulkInput");
+const bulkWarning = document.getElementById("bulkWarning");
+const bulkSubmitBtn = document.getElementById("bulkSubmitBtn");
+const bulkDemoBtn = document.getElementById("bulkDemoBtn");
+const bulkRows = document.getElementById("bulkRows");
+const bulkSummary = document.getElementById("bulkSummary");
+
+/* Sunucudaki hazir demo seti: frontend/samples/bulk/ altindaki 10 dosya (6 sentetik
+   farkli sablon + 4 gercek dunya/Kaggle). Link paylasilan biri kendi dosyasi olmadan
+   tek tiklamayla tam kapasiteli bir demo gorebilsin diye. */
+const BULK_DEMO_FILES = [
+  "sentetik_classic_1.png", "sentetik_classic_2.png",
+  "sentetik_compact_1.png", "sentetik_compact_2.png",
+  "sentetik_letterhead_1.png", "sentetik_letterhead_2.png",
+  "gercek_batch1_0001.jpg", "gercek_batch1_0005.jpg",
+  "gercek_batch1_0010.jpg", "gercek_batch1_0015.jpg",
+];
+
+bulkDemoBtn.addEventListener("click", async () => {
+  bulkDemoBtn.disabled = true;
+  try {
+    const files = await Promise.all(
+      BULK_DEMO_FILES.map(async (name) => {
+        const response = await fetch(`/static/samples/bulk/${name}`);
+        if (!response.ok) throw new Error(`${name} yüklenemedi (HTTP ${response.status})`);
+        const blob = await response.blob();
+        return new File([blob], name, { type: blob.type || "image/jpeg" });
+      })
+    );
+    await uploadBulk(files);
+  } catch (err) {
+    bulkSummary.style.display = "block";
+    bulkSummary.textContent = "Örnek dosyalar getirilemedi: " + err.message;
+  } finally {
+    bulkDemoBtn.disabled = false;
+  }
+});
+
+let selectedBulkFiles = [];
+
+function fileKey(file) {
+  return `${file.name}::${file.size}::${file.lastModified}`;
+}
+
+function addBulkFiles(files) {
+  const existingKeys = new Set(selectedBulkFiles.map(fileKey));
+  for (const file of files) {
+    const key = fileKey(file);
+    if (!existingKeys.has(key)) {
+      selectedBulkFiles.push(file);
+      existingKeys.add(key);
+    }
+  }
+  renderBulkRows({ removable: true });
+  updateBulkSubmitState();
+}
+
+function updateBulkSubmitState() {
+  const count = selectedBulkFiles.length;
+  const tooMany = count > MAX_BULK_FILES;
+  bulkWarning.style.display = tooMany ? "block" : "none";
+  bulkSubmitBtn.disabled = count === 0 || tooMany;
+}
+
+bulkInput.addEventListener("change", () => {
+  addBulkFiles(Array.from(bulkInput.files));
+  bulkInput.value = "";
+});
+
+bulkSubmitBtn.addEventListener("click", () => uploadBulk(selectedBulkFiles));
+
+function bulkRowId(index) {
+  return `bulk-row-${index}`;
+}
+
+function renderBulkRows({ removable }) {
+  bulkRows.innerHTML = "";
+  bulkSummary.style.display = "none";
+  selectedBulkFiles.forEach((file, i) => {
+    const row = document.createElement("div");
+    row.className = "bulk-row";
+    row.id = bulkRowId(i + 1);
+    const removeBtn = removable
+      ? `<button type="button" class="bulk-remove" data-index="${i}" title="Kaldır">×</button>`
+      : "";
+    row.innerHTML = `
+      <span class="bulk-file">${i + 1}. ${file.name}</span>
+      <span class="bulk-status">Bekliyor ${removeBtn}</span>
+    `;
+    bulkRows.appendChild(row);
+  });
+  if (removable) {
+    bulkRows.querySelectorAll(".bulk-remove").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        selectedBulkFiles.splice(Number(btn.dataset.index), 1);
+        renderBulkRows({ removable: true });
+        updateBulkSubmitState();
+      });
+    });
+  }
+}
+
+function updateBulkRow(payload) {
+  const row = document.getElementById(bulkRowId(payload.index));
+  if (!row) return;
+  const statusEl = row.querySelector(".bulk-status");
+
+  if (payload.status === "done") {
+    row.classList.add("done");
+    const r = payload.report || {};
+    statusEl.textContent = r.summary || "Tamamlandı";
+  } else {
+    row.classList.add("error");
+    statusEl.textContent = payload.message || "Hata";
+  }
+}
+
+function showBulkSummary(payload) {
+  bulkSummary.style.display = "block";
+  bulkSummary.textContent = `Toplam: ${payload.processed + payload.failed} · Başarılı: ${payload.processed} · Hatalı: ${payload.failed}`;
+}
+
+async function uploadBulk(files) {
+  if (files.length === 0 || files.length > MAX_BULK_FILES) return;
+
+  bulkSubmitBtn.disabled = true;
+  bulkInput.disabled = true;
+  selectedBulkFiles = files;
+  renderBulkRows({ removable: false });
+
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+
+  let response;
+  try {
+    response = await fetch("/invoices/bulk", { method: "POST", body: formData });
+  } catch (err) {
+    bulkSummary.style.display = "block";
+    bulkSummary.textContent = "Sunucuya ulaşılamadı: " + err.message;
+    bulkSubmitBtn.disabled = false;
+    bulkInput.disabled = false;
+    return;
+  }
+
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      detail = (await response.json()).detail || detail;
+    } catch {
+      /* govde JSON degilse HTTP kodu yeterli */
+    }
+    bulkSummary.style.display = "block";
+    bulkSummary.textContent = "İşlem başarısız: " + detail;
+    bulkSubmitBtn.disabled = false;
+    bulkInput.disabled = false;
+    return;
+  }
+
+  for await (const payload of readSseEvents(response)) {
+    if (payload.step === "batch_complete") {
+      showBulkSummary(payload);
+    } else {
+      updateBulkRow(payload);
+    }
+  }
+
+  selectedBulkFiles = [];
+  bulkInput.disabled = false;
+  updateBulkSubmitState();
+}
+</script>
+</body>
+</html>

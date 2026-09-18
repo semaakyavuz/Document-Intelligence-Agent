@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Fatura Paneli</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --border: #d8dde3;
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --err: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1rem;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  header a { color: var(--accent); text-decoration: none; font-size: 0.85rem; }
+
+  .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+  .card h2 { font-size: 0.95rem; margin: 0 0 0.75rem; color: var(--muted); }
+  .card canvas { max-height: 220px; }
+
+  #filterInput {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 0.6rem 0.75rem; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+  th { background: #f9fafb; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .badge.ok { background: #ecfdf5; color: var(--ok); }
+  .badge.warn { background: #fef2f2; color: var(--err); }
+  #emptyMsg { color: var(--muted); font-size: 0.85rem; padding: 1rem; text-align: center; display: none; }
+  #loadError { color: var(--err); font-size: 0.9rem; display: none; margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Fatura Paneli</h1>
+    <a href="/static/upload.html">+ Yeni fatura yükle</a>
+  </header>
+
+  <div id="loadError">Kayıtlar yüklenemedi.</div>
+
+  <div class="charts">
+    <div class="card">
+      <h2>Gün bazında işlenen fatura sayısı</h2>
+      <canvas id="dailyChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Geçerli / Anomalili oranı</h2>
+      <canvas id="validityChart"></canvas>
+    </div>
+  </div>
+
+  <input type="text" id="filterInput" placeholder="Satıcı adına göre filtrele...">
+
+  <table>
+    <thead>
+      <tr>
+        <th>Fatura No</th>
+        <th>Satıcı</th>
+        <th>Tutar</th>
+        <th>Anomali</th>
+        <th>İşlenme Tarihi</th>
+        <th>Durum</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+  <div id="emptyMsg">Filtreye uyan kayıt yok.</div>
+</div>
+
+<script>
+let allRows = [];
+
+async function loadInvoices() {
+  try {
+    const response = await fetch("/invoices?limit=100");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    allRows = await response.json();
+  } catch (err) {
+    document.getElementById("loadError").style.display = "block";
+    return;
+  }
+  renderTable(allRows);
+  renderCharts(allRows);
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function renderTable(rows) {
+  const tbody = document.getElementById("tableBody");
+  tbody.innerHTML = "";
+  document.getElementById("emptyMsg").style.display = rows.length === 0 ? "block" : "none";
+
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    const validBadge = row.is_valid
+      ? '<span class="badge ok">Geçerli</span>'
+      : '<span class="badge warn">Anomali var</span>';
+    tr.innerHTML = `
+      <td>${row.invoice_no ?? "-"}</td>
+      <td>${row.seller_name ?? "-"}</td>
+      <td>${row.grand_total != null ? row.grand_total + " TL" : "-"}</td>
+      <td>${row.anomaly_count}</td>
+      <td>${formatDate(row.processed_at)}</td>
+      <td>${validBadge}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function renderCharts(rows) {
+  const dailyCounts = {};
+  let validCount = 0;
+  let invalidCount = 0;
+
+  for (const row of rows) {
+    const day = row.processed_at.slice(0, 10);
+    dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+    if (row.is_valid) validCount++; else invalidCount++;
+  }
+
+  const days = Object.keys(dailyCounts).sort();
+
+  new Chart(document.getElementById("dailyChart"), {
+    type: "bar",
+    data: {
+      labels: days,
+      datasets: [{ label: "Fatura sayısı", data: days.map((d) => dailyCounts[d]), backgroundColor: "#2563eb" }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+    },
+  });
+
+  new Chart(document.getElementById("validityChart"), {
+    type: "doughnut",
+    data: {
+      labels: ["Geçerli", "Anomalili"],
+      datasets: [{ data: [validCount, invalidCount], backgroundColor: ["#16a34a", "#dc2626"] }],
+    },
+    options: { responsive: true },
+  });
+}
+
+document.getElementById("filterInput").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const filtered = q ? allRows.filter((r) => (r.seller_name || "").toLowerCase().includes(q)) : allRows;
+  renderTable(filtered);
+});
+
+loadInvoices();
+</script>
+</body>
+</html>

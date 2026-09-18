@@ -2,12 +2,14 @@
 rules_server.py
 
 RAG kural sorgulamasini (embed + ChromaDB query) bagimsiz bir MCP server olarak
-sunar. Tek arac: query_rules(query, top_k) -> list[str].
+sunar. Tek arac: query_rules(query, top_k) -> list[dict] ({"text","score","source"}).
 
 _query_rules_impl, RAGAgent'ta eskiden dogrudan calisan embed+query mantiginin
-BIREBIR AYNISIdir (kopyalanmistir); protokolden tamamen bagimsiz, saf bir
+temelde aynisidir (kopyalanmistir); protokolden tamamen bagimsiz, saf bir
 fonksiyondur - hem burada tool olarak sarmalanir, hem tests/test_rules_server.py'de
-dogrudan cagrilip eski RAGAgent davranisiyla karsilastirilir.
+dogrudan cagrilir. "score" alani ChromaDB'nin dondurdugu HAM distance degeridir -
+KUCUK deger DAHA BENZER demektir (cosine/normalize edilmis bir "1.0=en iyi"
+benzerlik degil; koleksiyon varsayilan mesafe uzayini kullanir).
 
 Bagimsiz calistirma (stdio):
     python -m app.mcp.rules_server
@@ -32,8 +34,11 @@ class KnowledgeBaseEmptyError(RuntimeError):
 
 def _query_rules_impl(
     query: str, top_k: int, embedding_provider: EmbeddingProvider, collection: chromadb.Collection
-) -> list[str]:
-    """RAGAgent'ta eskiden dogrudan calisan embed+query mantiginin birebir aynisi."""
+) -> list[dict]:
+    """RAGAgent'ta eskiden dogrudan calisan embed+query mantiginin devami; artik sadece
+    metin degil, ChromaDB'nin zaten hesapladigi distance ("score") ve belge id'sini
+    ("source" - bkz. index_knowledge_base.py'de dosya adi kok'u ids olarak kullaniliyor)
+    de dondurur."""
     if collection.count() == 0:
         raise KnowledgeBaseEmptyError(
             "Bilgi tabani bos. Once 'python scripts/index_knowledge_base.py' calistirin."
@@ -41,9 +46,16 @@ def _query_rules_impl(
 
     # Baglanti hatalari burada yutulmaz: VisionAgent/eski RAGAgent'taki ayni kuralin aynisi.
     query_embedding = embedding_provider.embed(query)
-    result = collection.query(query_embeddings=[query_embedding], n_results=top_k)
+    result = collection.query(query_embeddings=[query_embedding], n_results=top_k, include=["documents", "distances"])
 
-    return result["documents"][0] if result["documents"] else []
+    documents = result["documents"][0] if result["documents"] else []
+    distances = result["distances"][0] if result.get("distances") else [None] * len(documents)
+    ids = result["ids"][0] if result.get("ids") else [None] * len(documents)
+
+    return [
+        {"text": text, "score": score, "source": source}
+        for text, score, source in zip(documents, distances, ids)
+    ]
 
 
 def build_server(settings: Settings | None = None, embedding_provider: EmbeddingProvider | None = None) -> MCPServer:
@@ -60,8 +72,9 @@ def build_server(settings: Settings | None = None, embedding_provider: Embedding
     server = MCPServer("invoice-rules")
 
     @server.tool()
-    def query_rules(query: str, top_k: int = 3) -> list[str]:
-        """Verilen sorgu metnine en alakali en fazla top_k kural belgesini dondurur."""
+    def query_rules(query: str, top_k: int = 3) -> list[dict]:
+        """Verilen sorgu metnine en alakali en fazla top_k kural belgesini, her biri
+        {"text","score","source"} seklinde dondurur."""
         try:
             return _query_rules_impl(query, top_k, embedding_provider, collection)
         except (KnowledgeBaseEmptyError, ProviderError) as exc:

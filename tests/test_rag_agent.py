@@ -30,7 +30,9 @@ VALID_EXTRACTION = {
 
 # query_rules(query, top_k): query icinde "__bos__" gecerse ToolError firlatir (RAGAgent'in
 # bunu RuleQueryError'a cevirdigini test etmek icin); aksi halde her cagriyi ve top_k'yi
-# kural metnine gomup dondurur (RAGAgent'in dogru query/top_k gonderdigini kanitlamak icin).
+# kural metnine gomup, gercek rules_server.py'nin {"text","score","source"} seklini
+# taklit ederek dondurur (RAGAgent'in dogru query/top_k gonderdigini ve dict seklini
+# oldugu gibi ilettigini kanitlamak icin).
 FAKE_SERVER_SOURCE = '''
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -39,10 +41,13 @@ server = MCPServer("fake-rules")
 
 
 @server.tool()
-def query_rules(query: str, top_k: int = 3) -> list[str]:
+def query_rules(query: str, top_k: int = 3) -> list[dict]:
     if "__bos__" in query:
         raise ToolError("Bilgi tabani bos. Once 'python scripts/index_knowledge_base.py' calistirin.")
-    return [f"kural[{i}] icin sorgu: {query} (top_k={top_k})" for i in range(top_k)]
+    return [
+        {"text": f"kural[{i}] icin sorgu: {query} (top_k={top_k})", "score": 0.1 * i, "source": f"fake_rule_{i}"}
+        for i in range(top_k)
+    ]
 
 
 if __name__ == "__main__":
@@ -117,8 +122,22 @@ def test_run_sends_query_and_top_k_and_fills_retrieved_rules(fake_server_args):
     result = agent.run(PipelineState(image_path="x.png", raw_extraction=extraction))
 
     assert len(result.retrieved_rules) == 2
-    assert "Ürünler: Klavye." in result.retrieved_rules[0]
-    assert "top_k=2" in result.retrieved_rules[0]
+    assert "Ürünler: Klavye." in result.retrieved_rules[0]["text"]
+    assert "top_k=2" in result.retrieved_rules[0]["text"]
+    assert result.retrieved_rules[0]["source"] == "fake_rule_0"
+    assert result.retrieved_rules[0]["score"] == 0.0
+
+
+def test_run_records_mcp_query_duration_in_execution_trace(fake_server_args):
+    agent = _agent(fake_server_args, top_k=1)
+    extraction = {"items": [{"description": "Klavye"}]}
+
+    result = agent.run(PipelineState(image_path="x.png", raw_extraction=extraction))
+
+    assert len(result.execution_trace) == 1
+    assert result.execution_trace[0]["step"] == "rag.mcp_query"
+    assert isinstance(result.execution_trace[0]["duration_ms"], float)
+    assert result.execution_trace[0]["duration_ms"] >= 0
 
 
 def test_run_does_not_mutate_input_state(fake_server_args):

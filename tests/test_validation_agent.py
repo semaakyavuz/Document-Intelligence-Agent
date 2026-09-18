@@ -44,6 +44,10 @@ VALID_EXTRACTION = {
 }
 
 KLAVYE_RULE_TEXT = "Tipik birim fiyat aralığı: Klavye genellikle 300-2500 TL arasındadır."
+# PipelineState.retrieved_rules artik list[dict] ({"text","score","source"}); PriceRangeParser/
+# PriceRangeCheck'in dogrudan birim testleri (asagida) hala duz metin de kabul ediyor
+# (RAGAgent'in gercek MCP ciktisiyla PipelineState insa eden testler icin bu dict sekli gerekli).
+KLAVYE_RULE = {"text": KLAVYE_RULE_TEXT, "score": 0.1, "source": "birim_fiyat_klavye"}
 
 
 def _extraction(**overrides) -> dict:
@@ -134,36 +138,65 @@ def test_vat_rate_check_skips_unparseable_rate():
     assert VatRateCheck().check(extraction, []) == []
 
 
-# --- FormatCheck ---------------------------------------------------------------
+# --- FormatCheck: strict_tr -----------------------------------------------------
 
-def test_format_check_passes_for_valid_numbers():
-    assert FormatCheck().check(VALID_EXTRACTION, []) == []
+def test_format_check_strict_tr_passes_for_valid_numbers():
+    assert FormatCheck(profile="strict_tr").check(VALID_EXTRACTION, []) == []
 
 
 @pytest.mark.parametrize("invoice_no", ["202512345", "20251234567", "2025-12345", "abc1234567"])
-def test_format_check_flags_invalid_invoice_no(invoice_no):
+def test_format_check_strict_tr_flags_invalid_invoice_no(invoice_no):
     extraction = _extraction(invoice_no=invoice_no)
-    anomalies = FormatCheck().check(extraction, [])
+    anomalies = FormatCheck(profile="strict_tr").check(extraction, [])
     fields = [a["field"] for a in anomalies]
     assert "invoice_no" in fields
 
 
 @pytest.mark.parametrize("tax_no", ["123456789", "12345678901", "12345abcd0"])
-def test_format_check_flags_invalid_tax_no(tax_no):
+def test_format_check_strict_tr_flags_invalid_tax_no(tax_no):
     extraction = _extraction(seller_tax_no=tax_no)
-    anomalies = FormatCheck().check(extraction, [])
+    anomalies = FormatCheck(profile="strict_tr").check(extraction, [])
     fields = [a["field"] for a in anomalies]
     assert "seller_tax_no" in fields
 
 
-def test_format_check_accepts_tax_no_with_leading_zero():
+def test_format_check_strict_tr_accepts_tax_no_with_leading_zero():
     extraction = _extraction(seller_tax_no="0123456789")
-    assert FormatCheck().check(extraction, []) == []
+    assert FormatCheck(profile="strict_tr").check(extraction, []) == []
 
 
-def test_format_check_skips_when_field_missing_or_wrong_type():
+def test_format_check_strict_tr_skips_when_field_missing_or_wrong_type():
     extraction = _extraction(invoice_no=None, seller_tax_no=2025123456)
-    assert FormatCheck().check(extraction, []) == []
+    assert FormatCheck(profile="strict_tr").check(extraction, []) == []
+
+
+# --- FormatCheck: lenient ---------------------------------------------------------
+
+def test_format_check_lenient_passes_for_valid_turkish_extraction():
+    assert FormatCheck(profile="lenient").check(VALID_EXTRACTION, []) == []
+
+
+@pytest.mark.parametrize("invoice_no", ["INV-2024-00982", "FR/2025/00042", "A1"])
+def test_format_check_lenient_passes_for_foreign_format_invoice_no(invoice_no):
+    """Yabanci formatli ama dolu/anlamli bir deger, lenient modda anomali sayilmamali."""
+    extraction = _extraction(invoice_no=invoice_no)
+    assert FormatCheck(profile="lenient").check(extraction, []) == []
+
+
+@pytest.mark.parametrize("invoice_no", [None, "", "   ", "N/A", "yok", "-"])
+def test_format_check_lenient_flags_empty_or_placeholder_invoice_no(invoice_no):
+    extraction = _extraction(invoice_no=invoice_no)
+    anomalies = FormatCheck(profile="lenient").check(extraction, [])
+    fields = [a["field"] for a in anomalies]
+    assert "invoice_no" in fields
+
+
+@pytest.mark.parametrize("tax_no", [None, "", "bilinmiyor"])
+def test_format_check_lenient_flags_empty_or_placeholder_tax_no(tax_no):
+    extraction = _extraction(seller_tax_no=tax_no)
+    anomalies = FormatCheck(profile="lenient").check(extraction, [])
+    fields = [a["field"] for a in anomalies]
+    assert "seller_tax_no" in fields
 
 
 # --- PriceRangeParser / PriceRangeCheck ----------------------------------------
@@ -224,18 +257,49 @@ def test_agent_reports_valid_when_extraction_is_fully_consistent():
     state = PipelineState(
         image_path="data/golden/images/invoice_0001.png",
         raw_extraction=VALID_EXTRACTION,
-        retrieved_rules=[KLAVYE_RULE_TEXT],
+        retrieved_rules=[KLAVYE_RULE],
     )
     result = ValidationAgent().run(state)
     assert result.anomalies == []
     assert result.is_valid is True
 
 
+def test_agent_validation_checklist_reports_all_checkers_when_valid():
+    state = PipelineState(
+        image_path="x.png", raw_extraction=VALID_EXTRACTION, retrieved_rules=[KLAVYE_RULE],
+    )
+    result = ValidationAgent().run(state)
+
+    rules = {entry["rule"] for entry in result.validation_checklist}
+    assert rules == {"math_consistency", "vat_rate", "format", "price_range"}
+    assert all(entry["passed"] is True for entry in result.validation_checklist)
+
+
+def test_agent_validation_checklist_marks_failing_checker_as_not_passed():
+    bad_extraction = _extraction(invoice_no="bozuk")
+    state = PipelineState(image_path="x.png", raw_extraction=bad_extraction, retrieved_rules=[])
+    result = ValidationAgent(format_profile="strict_tr").run(state)
+
+    checklist = {entry["rule"]: entry for entry in result.validation_checklist}
+    assert checklist["format"]["passed"] is False
+    assert checklist["format"]["message"] != "Sorun tespit edilmedi."
+    assert checklist["math_consistency"]["passed"] is True
+    assert checklist["math_consistency"]["message"] == "Sorun tespit edilmedi."
+
+
+def test_agent_validation_checklist_is_empty_when_raw_extraction_is_missing():
+    state = PipelineState(image_path="x.png", raw_extraction=None)
+    result = ValidationAgent().run(state)
+    assert result.validation_checklist == []
+
+
 def test_agent_aggregates_anomalies_from_multiple_checkers():
+    """invoice_no="bozuk" strict_tr'de format ihlali; lenient'ta (varsayilan) dolu/anlamli
+    bir deger oldugu icin flaglenmez - bu test kasitli olarak strict_tr ister."""
     bad_extraction = _extraction(invoice_no="bozuk", subtotal=1.0)
     bad_extraction["items"][0] = {**bad_extraction["items"][0], "vat_rate": 0.18}
     state = PipelineState(image_path="x.png", raw_extraction=bad_extraction, retrieved_rules=[])
-    result = ValidationAgent().run(state)
+    result = ValidationAgent(format_profile="strict_tr").run(state)
 
     rules_found = {a["rule"] for a in result.anomalies}
     assert {"format", "math_consistency", "vat_rate"} <= rules_found
@@ -256,11 +320,31 @@ def test_agent_sets_invalid_with_single_anomaly_when_raw_extraction_is_missing()
 
 def test_agent_does_not_mutate_input_state():
     original = PipelineState(
-        image_path="x.png", raw_extraction=VALID_EXTRACTION, retrieved_rules=[KLAVYE_RULE_TEXT],
+        image_path="x.png", raw_extraction=VALID_EXTRACTION, retrieved_rules=[KLAVYE_RULE],
     )
     ValidationAgent().run(original)
     assert original.anomalies == []
     assert original.is_valid is True
+
+
+def test_agent_lenient_profile_does_not_flag_foreign_format_numbers():
+    """Varsayilan (lenient) profil, yabanci formatli ama dolu numaralari anomali saymamali."""
+    extraction = _extraction(invoice_no="INV-2024-00982", seller_tax_no="GB123456789")
+    state = PipelineState(image_path="x.png", raw_extraction=extraction, retrieved_rules=[KLAVYE_RULE])
+    result = ValidationAgent(format_profile="lenient").run(state)
+    assert result.anomalies == []
+    assert result.is_valid is True
+
+
+def test_agent_strict_tr_profile_flags_non_turkish_format_numbers():
+    """Ayni veri, strict_tr profilinde format anomalisi uretmeli."""
+    extraction = _extraction(invoice_no="INV-2024-00982", seller_tax_no="GB123456789")
+    state = PipelineState(image_path="x.png", raw_extraction=extraction, retrieved_rules=[KLAVYE_RULE])
+    result = ValidationAgent(format_profile="strict_tr").run(state)
+    assert result.is_valid is False
+    fields = [a["field"] for a in result.anomalies]
+    assert "invoice_no" in fields
+    assert "seller_tax_no" in fields
 
 
 def test_agent_accepts_custom_checker_list():

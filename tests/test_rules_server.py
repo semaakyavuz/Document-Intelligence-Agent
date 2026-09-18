@@ -83,7 +83,10 @@ def test_query_rules_impl_returns_single_most_relevant_rule(tmp_path):
 
     result = _query_rules_impl("Klavye", top_k=1, embedding_provider=FakeEmbeddingProvider(), collection=collection)
 
-    assert result == ["Klavye ile ilgili kural metni."]
+    assert len(result) == 1
+    assert result[0]["text"] == "Klavye ile ilgili kural metni."
+    assert result[0]["source"] == "d_klavye"
+    assert isinstance(result[0]["score"], float)
 
 
 def test_query_rules_impl_returns_up_to_top_k_rules(tmp_path):
@@ -97,7 +100,9 @@ def test_query_rules_impl_returns_up_to_top_k_rules(tmp_path):
     result = _query_rules_impl("Klavye", top_k=3, embedding_provider=FakeEmbeddingProvider(), collection=collection)
 
     assert len(result) == 3
-    assert "Klavye ile ilgili kural metni." in result
+    texts = [r["text"] for r in result]
+    assert "Klavye ile ilgili kural metni." in texts
+    assert all({"text", "score", "source"} <= r.keys() for r in result)
 
 
 def test_query_rules_impl_raises_when_collection_empty(tmp_path):
@@ -130,8 +135,11 @@ def test_build_server_tool_uses_injected_embedding_provider_and_chroma_path(tmp_
     server = build_server(settings=settings, embedding_provider=FakeEmbeddingProvider())
 
     result = asyncio.run(server.call_tool("query_rules", {"query": "Klavye", "top_k": 1}))
+    items = result.structured_content["result"]
 
-    assert result.structured_content["result"] == ["Klavye ile ilgili kural metni."]
+    assert len(items) == 1
+    assert items[0]["text"] == "Klavye ile ilgili kural metni."
+    assert items[0]["source"] == "d_klavye"
 
 
 # --- gercek stdio subprocess ucu ucu -------------------------------------------------------
@@ -147,7 +155,7 @@ def test_real_stdio_subprocess_round_trip_with_real_ollama_embedding(tmp_path):
         "d_kagit": "Kağıt ile ilgili kural metni.",
     }, provider=real_embedding_provider)
 
-    async def run() -> list[str]:
+    async def run() -> list[dict]:
         params = StdioServerParameters(
             command=sys.executable,
             args=["-m", "app.mcp.rules_server"],
@@ -160,4 +168,6 @@ def test_real_stdio_subprocess_round_trip_with_real_ollama_embedding(tmp_path):
         return result.structured_content["result"]
 
     rules = asyncio.run(run())
-    assert rules == ["Klavye ile ilgili kural metni."]
+    assert len(rules) == 1
+    assert rules[0]["text"] == "Klavye ile ilgili kural metni."
+    assert rules[0]["source"] == "d_klavye"

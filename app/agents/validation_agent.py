@@ -12,9 +12,12 @@ gecerli bir ABC kullanimi (bkz. rag_agent.py'deki ayni gerekce).
 
 import re
 from abc import ABC, abstractmethod
+from typing import ClassVar, Literal
 
 from app.agents.base import BaseAgent
 from app.state import PipelineState
+
+FormatProfile = Literal["strict_tr", "lenient"]
 
 
 def _to_float(value) -> float | None:
@@ -42,7 +45,7 @@ class Checker(ABC):
     """Tek bir kural setini denetleyen kucuk, tek sorumluluklu kontrol sinifi arayuzu."""
 
     @abstractmethod
-    def check(self, extraction: dict, retrieved_rules: list[str]) -> list[dict]:
+    def check(self, extraction: dict, retrieved_rules: list[dict]) -> list[dict]:
         """Anomali sozlukleri listesi dondurur (sorun yoksa bos liste)."""
 
 
@@ -52,7 +55,7 @@ class MathConsistencyCheck(Checker):
     RULE_NAME = "math_consistency"
     TOLERANCE = 0.01
 
-    def check(self, extraction: dict, retrieved_rules: list[str]) -> list[dict]:
+    def check(self, extraction: dict, retrieved_rules: list[dict]) -> list[dict]:
         anomalies: list[dict] = []
         items = extraction.get("items")
         if not isinstance(items, list):
@@ -124,7 +127,7 @@ class VatRateCheck(Checker):
     VALID_RATES = (0.01, 0.10, 0.20)
     RATE_TOLERANCE = 1e-6
 
-    def check(self, extraction: dict, retrieved_rules: list[str]) -> list[dict]:
+    def check(self, extraction: dict, retrieved_rules: list[dict]) -> list[dict]:
         anomalies: list[dict] = []
         items = extraction.get("items")
         if not isinstance(items, list):
@@ -145,12 +148,29 @@ class VatRateCheck(Checker):
 
 
 class FormatCheck(Checker):
-    """Fatura numarasi (yil+6 hane) ve vergi numarasi (10 hane) formatini kontrol eder."""
+    """Fatura numarasi ve vergi numarasinin formatini denetler; iki profil destekler.
+
+    strict_tr: Turk formatinin tam 10 haneli sayisal olmasini zorunlu kilar (sadece
+    Turk formatinda sentetik veride kullanilmali). lenient: sadece alanin bos/anlamsiz
+    olmadigini kontrol eder, herhangi bir uzunluk/hane formatini dayatmaz - yabanci
+    formatli gercek faturalari yanlislikla anomali diye isaretlememek icin (bkz.
+    Settings.FORMAT_PROFILE, app/config.py)."""
 
     RULE_NAME = "format"
     _TEN_DIGITS = re.compile(r"^\d{10}$")
+    _PLACEHOLDER_VALUES: ClassVar[set[str]] = {
+        "", "none", "null", "n/a", "na", "yok", "bilinmiyor", "unknown", "-", "belirtilmemis",
+    }
 
-    def check(self, extraction: dict, retrieved_rules: list[str]) -> list[dict]:
+    def __init__(self, profile: FormatProfile):
+        self._profile = profile
+
+    def check(self, extraction: dict, retrieved_rules: list[dict]) -> list[dict]:
+        if self._profile == "strict_tr":
+            return self._check_strict_tr(extraction)
+        return self._check_lenient(extraction)
+
+    def _check_strict_tr(self, extraction: dict) -> list[dict]:
         anomalies: list[dict] = []
 
         invoice_no = extraction.get("invoice_no")
@@ -169,21 +189,50 @@ class FormatCheck(Checker):
 
         return anomalies
 
+    def _check_lenient(self, extraction: dict) -> list[dict]:
+        anomalies: list[dict] = []
+        for field, label in (("invoice_no", "Fatura numarası"), ("seller_tax_no", "Vergi numarası")):
+            value = extraction.get(field)
+            if not self._looks_meaningful(value):
+                anomalies.append(_anomaly(
+                    self.RULE_NAME, field, f"{label} alanı boş ya da anlamsız görünüyor: {value!r}.",
+                ))
+        return anomalies
+
+    @classmethod
+    def _looks_meaningful(cls, value) -> bool:
+        if value is None:
+            return False
+        text = str(value).strip().casefold()
+        return bool(text) and text not in cls._PLACEHOLDER_VALUES
+
 
 class PriceRangeParser:
     """retrieved_rules metinlerinden 'Ürün ... genellikle X-Y TL arasındadır' bicimindeki
-    tipik fiyat araliklarini cikarir (bkz. data/knowledge_base/birim_fiyat_*.txt)."""
+    tipik fiyat araliklarini cikarir (bkz. data/knowledge_base/birim_fiyat_*.txt).
+
+    Her rule ya {"text": ...} seklinde bir sozluk (RAGAgent'in gercek MCP ciktisi -
+    ayrica "score"/"source" da tasir ama burada kullanilmaz) ya da duz bir metin
+    (testlerde dogrudan parser/checker birim testi icin) olabilir - ikisi de kabul edilir."""
 
     _PATTERN = re.compile(
         r"([A-ZÇĞİÖŞÜ][\w]*(?:\s+[A-ZÇĞİÖŞÜ0-9][\w]*)*)\s*(?:\([^)]*\)\s*)?genellikle\s+(\d+)-(\d+)\s*TL"
     )
 
-    def parse(self, retrieved_rules: list[str]) -> dict[str, tuple[float, float]]:
+    def parse(self, retrieved_rules: list[dict | str]) -> dict[str, tuple[float, float]]:
         ranges: dict[str, tuple[float, float]] = {}
-        for text in retrieved_rules:
+        for rule in retrieved_rules:
+            text = self._rule_text(rule)
             for name, low, high in self._PATTERN.findall(text):
                 ranges[name.strip().casefold()] = (float(low), float(high))
         return ranges
+
+    @staticmethod
+    def _rule_text(rule: dict | str) -> str:
+        if isinstance(rule, dict):
+            text = rule.get("text")
+            return text if isinstance(text, str) else ""
+        return rule if isinstance(rule, str) else ""
 
 
 class PriceRangeCheck(Checker):
@@ -197,7 +246,7 @@ class PriceRangeCheck(Checker):
     def __init__(self, parser: PriceRangeParser | None = None):
         self._parser = parser or PriceRangeParser()
 
-    def check(self, extraction: dict, retrieved_rules: list[str]) -> list[dict]:
+    def check(self, extraction: dict, retrieved_rules: list[dict]) -> list[dict]:
         anomalies: list[dict] = []
         items = extraction.get("items")
         if not isinstance(items, list) or not retrieved_rules:
@@ -229,10 +278,13 @@ class PriceRangeCheck(Checker):
         return anomalies
 
 
+# "lenient" (Settings.FORMAT_PROFILE'in varsayilani) icin sabit checker seti - ValidationAgent()
+# no-arg cagrisi bunu kullanir; "strict_tr" istenirse ValidationAgent format_profile'a gore
+# taze bir set kurar (bkz. asagisi).
 DEFAULT_CHECKERS: tuple[Checker, ...] = (
     MathConsistencyCheck(),
     VatRateCheck(),
-    FormatCheck(),
+    FormatCheck(profile="lenient"),
     PriceRangeCheck(),
 )
 
@@ -240,8 +292,17 @@ DEFAULT_CHECKERS: tuple[Checker, ...] = (
 class ValidationAgent(BaseAgent):
     """Cikarilan fatura verisini kural bazli kontrol sinifi listesiyle denetler; LLM kullanmaz."""
 
-    def __init__(self, checkers: tuple[Checker, ...] | list[Checker] | None = None):
-        self._checkers = tuple(checkers) if checkers is not None else DEFAULT_CHECKERS
+    def __init__(
+        self,
+        checkers: tuple[Checker, ...] | list[Checker] | None = None,
+        format_profile: FormatProfile = "lenient",
+    ):
+        if checkers is not None:
+            self._checkers = tuple(checkers)
+        elif format_profile == "lenient":
+            self._checkers = DEFAULT_CHECKERS
+        else:
+            self._checkers = (MathConsistencyCheck(), VatRateCheck(), FormatCheck(profile=format_profile), PriceRangeCheck())
 
     def run(self, state: PipelineState) -> PipelineState:
         if not state.raw_extraction:
@@ -254,7 +315,17 @@ class ValidationAgent(BaseAgent):
             return state.model_copy(update={"anomalies": [anomaly], "is_valid": False})
 
         anomalies: list[dict] = []
+        checklist: list[dict] = []
         for checker in self._checkers:
-            anomalies.extend(checker.check(state.raw_extraction, state.retrieved_rules))
+            checker_anomalies = checker.check(state.raw_extraction, state.retrieved_rules)
+            anomalies.extend(checker_anomalies)
+            checklist.append({
+                "rule": getattr(checker, "RULE_NAME", type(checker).__name__),
+                "passed": not checker_anomalies,
+                "message": "Sorun tespit edilmedi." if not checker_anomalies
+                else "; ".join(a["message"] for a in checker_anomalies),
+            })
 
-        return state.model_copy(update={"anomalies": anomalies, "is_valid": not anomalies})
+        return state.model_copy(update={
+            "anomalies": anomalies, "is_valid": not anomalies, "validation_checklist": checklist,
+        })

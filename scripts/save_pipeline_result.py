@@ -18,6 +18,8 @@ from pathlib import Path
 # scripts/ klasorunden calistirildiginda app paketinin bulunabilmesi icin
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+
 from app.db.models import InvoiceRecord  # noqa: E402
 from app.db.session import get_session_factory, init_db  # noqa: E402
 from app.graph import build_pipeline_graph  # noqa: E402
@@ -30,8 +32,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _run_pipeline(image_path: str) -> dict:
-    graph = build_pipeline_graph()
+async def _run_pipeline(image_path: str, session_factory: sessionmaker[Session]) -> dict:
+    # session_factory pipeline'a burada gecilir ki ReportAgent price_history'yi (bkz.
+    # app/db/price_history.py) ayni veritabanindan hesaplayabilsin.
+    graph = build_pipeline_graph(session_factory=session_factory)
     raw_result = await graph.ainvoke(PipelineState(image_path=image_path))
     # graph.ainvoke() duz bir dict dondurur; None kalan alanlar dusebilir
     # (bkz. run_pipeline_graph.py'deki ayni not); PipelineState(**raw_result) geri tamamlar.
@@ -46,11 +50,12 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     args = build_arg_parser().parse_args()
 
-    final_report = asyncio.run(_run_pipeline(args.image))
-    print(f"Pipeline tamamlandi: {final_report['summary']}")
-
     init_db()
     session_factory = get_session_factory()
+
+    final_report = asyncio.run(_run_pipeline(args.image, session_factory))
+    print(f"Pipeline tamamlandi: {final_report['summary']}")
+
     with session_factory() as session:
         record = InvoiceRecord.from_final_report(Path(args.image).name, final_report)
         session.add(record)

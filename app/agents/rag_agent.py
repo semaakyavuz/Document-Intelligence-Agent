@@ -22,6 +22,7 @@ kullanmaz.
 
 import asyncio
 import sys
+import time
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -110,10 +111,14 @@ class RAGAgent(BaseAgent):
         if not query_text:
             return state.model_copy(update={"retrieved_rules": []})
 
+        start = time.perf_counter()
         retrieved_rules = await self._call_query_rules(query_text)
-        return state.model_copy(update={"retrieved_rules": retrieved_rules})
+        mcp_duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        trace = [*state.execution_trace, {"step": "rag.mcp_query", "duration_ms": mcp_duration_ms}]
 
-    async def _call_query_rules(self, query_text: str) -> list[str]:
+        return state.model_copy(update={"retrieved_rules": retrieved_rules, "execution_trace": trace})
+
+    async def _call_query_rules(self, query_text: str) -> list[dict]:
         params = StdioServerParameters(command=self._server_command, args=self._server_args)
         async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
             await session.initialize()

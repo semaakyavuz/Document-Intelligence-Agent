@@ -24,5 +24,8 @@ fastapi
 uvicorn[standard]
 python-multipart  # FastAPI'de UploadFile (multipart form) icin gerekli
 
+# scripts/evaluate_vision_agent.py: esnek tarih parse (format farkindan bagimsiz karsilastirma)
+python-dateutil
+
 # testler
 pytest
