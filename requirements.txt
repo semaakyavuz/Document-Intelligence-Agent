@@ -29,3 +29,8 @@ python-dateutil
 
 # testler
 pytest
+
+# lint (CI: .github/workflows/ci.yml)
+# Surum sabit: yeni ruff surumleri yeni kural ekleyebiliyor ve hicbir sey
+# degismeden CI'i aniden kirmiziya cevirebiliyor. Kural seti ruff.toml'da.
+ruff==0.16.7

@@ -1,0 +1,41 @@
+# Ruff yapilandirmasi.
+#
+# Bilincli olarak pyproject.toml yerine ayri bir dosya: proje paketlenmiyor ve
+# pyproject.toml eklemek pip/pytest davranisini etkileyebilirdi.
+#
+# Kural seti "bugun yesil olan en genis anlamli set" olarak secildi; kodu
+# duzeltmek icin degil, kodun bugunku halini denetlemek icin. Henuz acilmayanlar
+# ve nedenleri asagida -- bunlari acmak ayri birer temizlik isi.
+
+target-version = "py312"
+
+# E501 (satir uzunlugu) SECILI DEGIL, bu deger sadece ileride formatter/E501
+# acilirsa diye niyet belgesi. Mevcut kodda 88 karakteri asan 675, 120'yi asan
+# 26 satir var (en uzunu 186), yani E501 su an yesil olamaz.
+line-length = 120
+
+exclude = [".venv", "graphify-out", "data", "frontend"]
+
+[lint]
+select = [
+  "F",    # pyflakes - kullanilmayan import, tanimsiz isim gibi gercek hatalar
+  "E4",   # import yerlesimi
+  "E7",   # deyim duzeyi hatalar
+  "E9",   # sozdizimi / calisma zamani hatalari
+  "BLE",  # blind except - koddaki `# noqa: BLE001` yorumlarini anlamli kilar
+  "UP",   # pyupgrade - eskimis Python kaliplari
+]
+
+# Henuz acilmayanlar (hepsi bilinen, sayili ihlal - kod duzeltilmeden acilamaz):
+#   B905 (7)   zip(..., strict=) eksik
+#   B007 (1)   kullanilmayan dongu degiskeni
+#   I001 (4)   import siralamasi
+#   RUF001+    Turkce metinlerde "belirsiz unicode karakter" - bu kod tabani icin
+#              anlamsiz, acilmamali (119 yanlis pozitif)
+
+[lint.per-file-ignores]
+# Yogun tek-satirlik cizim/kurulum cagrilari; yeniden bicimlendirmek bu isin kapsami disinda.
+"scripts/generate_invoices.py" = ["E702"]
+# logger tanimi son import blogunun onune dusmus (gemini_provider.py:19-21).
+# Tek satirlik bir duzeltme ama uretim kodu, bilerek dokunulmadi.
+"app/providers/gemini_provider.py" = ["E402"]
