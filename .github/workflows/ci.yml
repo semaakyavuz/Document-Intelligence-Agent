@@ -20,6 +20,10 @@ jobs:
     steps:
       - name: Kodu al
         uses: actions/checkout@v4
+        with:
+          # SonarCloud'un dogru analiz yapabilmesi icin tam git gecmisi gerekiyor
+          # (yeni-kod tespiti ve blame sig klonla yanlis sonuc uretir).
+          fetch-depth: 0
 
       - name: Python 3.12 kur (pip onbellegi ile)
         uses: actions/setup-python@v5
@@ -27,6 +31,16 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements.txt
+
+      # augraphy zorunlu bagimlilik olarak TAM opencv-python'u cekiyor; bu paket
+      # requirements.txt'teki opencv-python-headless ile ayni cv2 isim alanina
+      # kuruluyor ve GUI'li olan kazaninca X kutuphaneleri gerekiyor. Bu libler
+      # olmadan `import cv2` patliyor ve pytest daha toplama asamasinda coküyor
+      # (Linux konteynerinde dogrulandi: once libxcb.so.1, ardindan libGL.so.1).
+      - name: Sistem kutuphaneleri (opencv icin)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgl1 libglib2.0-0 libxcb1
 
       - name: Bagimliliklari kur
         run: |
@@ -39,7 +53,18 @@ jobs:
       # "not slow": slow isaretli testler gercek Ollama'ya, gercek MCP stdio alt
       # surecine ve diske persist eden ChromaDB'ye baglanir; CI'da calistirilmaz.
       # Geri kalan testler dis servise hic dokunmaz (DB tarafi sqlite:///:memory:).
-      - name: pytest (slow disinda)
+      # --cov-report=xml: SonarCloud'un okudugu coverage.xml'i uretir
+      # (bkz. sonar-project.properties -> sonar.python.coverage.reportPaths).
+      - name: pytest (slow disinda) + coverage
         # Ruff kirmizi olsa bile test sonucunu da gormek icin calissin.
         if: success() || failure()
-        run: pytest -m "not slow" -q
+        run: pytest -m "not slow" --cov=app --cov-report=xml -q
+
+      # Lint ve testler gectikten SONRA calisir; onceki adimlardan biri kirmizi
+      # ise bu adim atlanir (bozuk bir yapiyi analiz etmenin anlami yok).
+      # Yapilandirma: kokteki sonar-project.properties
+      - name: SonarCloud analizi
+        uses: SonarSource/sonarqube-scan-action@v8.2.2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

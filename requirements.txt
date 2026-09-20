@@ -29,6 +29,7 @@ python-dateutil
 
 # testler
 pytest
+pytest-cov  # CI'da coverage.xml uretir; SonarCloud bu raporu okuyor
 
 # lint (CI: .github/workflows/ci.yml)
 # Surum sabit: yeni ruff surumleri yeni kural ekleyebiliyor ve hicbir sey

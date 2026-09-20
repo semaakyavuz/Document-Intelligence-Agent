@@ -1,6 +1,7 @@
 # Document Intelligence Agent
 
 [![CI](https://github.com/semaakyavuz/Document-Intelligence-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/semaakyavuz/Document-Intelligence-Agent/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=semaakyavuz_Document-Intelligence-Agent&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=semaakyavuz_Document-Intelligence-Agent)
 
 Türkçe fatura görsellerini dört ajanlı bir yapay zekâ hattından geçirip, çıkarılan veriyi
 kural tabanlı bir bilgi tabanına karşı doğrulayan, açıklanabilir bir risk puanı üreten ve

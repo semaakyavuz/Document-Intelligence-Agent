@@ -6,3 +6,8 @@ data/*
 .env
 .venv/
 augraphy_cache/
+
+# test kapsam ciktilari (CI uretir, commitlenmez)
+coverage.xml
+.coverage
+htmlcov/
