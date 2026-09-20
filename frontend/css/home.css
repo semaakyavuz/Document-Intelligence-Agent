@@ -1,0 +1,411 @@
+/* home.css - ana sayfaya ozgu duzen/bilesen stilleri (design-system.css'in uzerine) */
+
+/* ---------------- Nav ---------------- */
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.site-nav .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+.site-nav .brand {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  text-decoration: none;
+}
+.site-nav ul {
+  list-style: none;
+  display: flex;
+  gap: 1.4rem;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+}
+.site-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.site-nav a:hover, .site-nav a:focus-visible { color: var(--accent); }
+.site-nav .nav-cta {
+  color: var(--accent);
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ---------------- Genel bolum duzeni ---------------- */
+section {
+  padding: 3.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+section:last-of-type { border-bottom: none; }
+section > .wrap > h2 { margin-bottom: 0.4rem; }
+
+/* ---------------- Split-screen (Pipeline / Mimari / Analiz) ----------------
+   Ayni DOM/JS, sadece iki kolonlu yerlesim: solda kontrol/liste, sagda
+   detay/canli panel (sticky). Dar ekranda tek kolona diser. */
+.split-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+  margin-top: 2rem;
+}
+.split-detail {
+  position: sticky;
+  top: 5.5rem;
+}
+@media (max-width: 860px) {
+  /* minmax(0, 1fr) sart: duz "1fr"in otomatik minimumu min-content oldugu icin
+     kolon icerigin altina inemiyor ve dar ekranda sayfayi yatay tasiriyor. */
+  .split-screen { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .split-detail { position: static; }
+}
+
+/* ---------------- Hero ---------------- */
+.hero .wrap { padding-top: 1rem; }
+.hero .tag { margin-bottom: 1.5rem; }
+/* 22ch, HTML'deki <br>'in 2 satirlik kirilimini korur; daha dar olsa "Inside every
+   invoice." ucuncu bir satira tasiyordu. */
+.hero h1 { max-width: 22ch; margin-bottom: 1.25rem; }
+.hero .lede {
+  font-size: 1.15rem;
+  line-height: 1.62;
+  color: var(--ink-soft);
+  max-width: 58ch;
+  margin-bottom: 1.5rem;
+}
+.hero-actions { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; margin-top: 1.75rem; }
+.btn-primary {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+  padding: 0.65rem 1.3rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.btn-primary { box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 20%, transparent); }
+.btn-primary:hover { opacity: 0.92; }
+
+/* ---------------- AI Pipeline ---------------- */
+/* Sira YATAY degil DIKEY: split-screen'in sol kolonu 4 yan yana node + oklar icin
+   asla yeterince genis degil (~834px gerekiyor, kolon ~600px) ve yatay dizilim
+   sarmalayip 2+1+1 gibi "grid" gorunumlu, kirik bir sekle donuyordu. Dikey dizilim
+   hala tek ve sirali bir akis - paralel dal ya da 2x2 grid yok. */
+.agent-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  margin: 0 0 1.5rem;
+}
+.agent-node {
+  flex: 0 0 auto;
+  min-width: 0;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.agent-node:hover, .agent-node:focus-visible { border-color: var(--accent); }
+.agent-node[aria-expanded="true"] { border-color: var(--accent); background: var(--bg); box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent); }
+.agent-index { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+.agent-name { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; letter-spacing: -0.012em; }
+.agent-tagline { font-size: 0.85rem; color: var(--muted); }
+.agent-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  padding: 0.1rem 0 0.1rem 1.4rem;
+  flex-shrink: 0;
+}
+.agent-arrow svg {
+  transform: rotate(90deg);
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--accent) 25%, transparent));
+}
+
+.agent-detail {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1.5rem;
+  min-height: 3rem;
+}
+.agent-detail:empty { display: none; }
+.agent-detail h3 { margin-bottom: 0.2rem; }
+.agent-detail .detail-meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
+.detail-fields { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; }
+.detail-fields dt { color: var(--muted); }
+.detail-fields dd { margin: 0; font-family: var(--font-mono); }
+.detail-list { margin: 0 0 0.5rem; padding-left: 1.2rem; font-size: 0.9rem; }
+.detail-list li { margin-bottom: 0.35rem; }
+.detail-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-family: var(--font-mono); margin-bottom: 1rem; }
+.detail-flow span.step { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.25rem 0.55rem; }
+.detail-flow span.arrow { color: var(--muted); }
+.sample-json {
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  margin: 0;
+  white-space: pre;
+}
+.sample-json-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* ---------------- Dogrulama Motoru ---------------- */
+.checker-list { border-top: 1px solid var(--line); margin-top: 1.5rem; }
+.checker-header {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 1rem 0;
+  text-align: left;
+}
+.checker-header:hover .checker-name, .checker-header:focus-visible .checker-name { color: var(--accent); }
+.checker-name { font-family: var(--font-mono); font-weight: 600; font-size: 0.95rem; }
+.checker-summary { color: var(--muted); font-size: 0.85rem; text-align: right; }
+.checker-toggle { font-family: var(--font-mono); color: var(--muted); margin-left: 0.75rem; }
+.checker-body {
+  padding: 0 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.92rem;
+}
+.checker-body[hidden] { display: none; }
+.checker-body p { max-width: 62ch; }
+.rate-badges { display: flex; gap: 0.5rem; margin: 0.75rem 0; }
+.rate-badge {
+  font-family: var(--font-mono);
+  border: 1px solid var(--ok);
+  color: var(--ok);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+
+.checker-demo {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-top: 0.75rem;
+}
+.demo-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.75rem; }
+.demo-inputs { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.demo-inputs label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--muted); }
+.demo-inputs input { width: 8rem; }
+.demo-result { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 600; margin: 0; }
+.demo-result.ok { color: var(--ok); }
+.demo-result.bad { color: var(--bad); }
+
+/* ---------------- Mimari ---------------- */
+.arch-flow { list-style: none; margin: 2rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.arch-flow > li { display: flex; align-items: center; gap: 0.6rem; }
+.arch-flow > li::before {
+  content: "";
+  width: 1px;
+  align-self: stretch;
+}
+.arch-node {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.6rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  text-align: left;
+}
+.arch-node:hover, .arch-node:focus-visible, .arch-node[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.arch-node[aria-expanded="true"] { box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent); }
+.arch-subflow { list-style: none; margin: 0.4rem 0 0 1.5rem; padding-left: 1rem; border-left: 1px dashed var(--line-strong); display: flex; flex-direction: column; gap: 0.4rem; }
+.arch-detail {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1.25rem;
+  font-size: 0.9rem;
+  min-height: 2rem;
+}
+.arch-detail:empty { display: none; }
+.arch-detail h4 { color: var(--ink); text-transform: none; letter-spacing: normal; font-family: var(--font-mono); font-size: 0.9rem; }
+
+/* ---------------- Analiz Basla (yukleme) ---------------- */
+.tabs { display: flex; gap: 0.5rem; margin: 1.5rem 0 1.25rem; }
+.tab-btn {
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.tab-btn.active { border-color: var(--accent); color: var(--accent); background: var(--bg); box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 15%, transparent); }
+.tab-panel[hidden] { display: none; }
+
+#dropzone {
+  display: block;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 2.5rem 1rem;
+  text-align: center;
+  cursor: pointer;
+}
+#dropzone.drag-over { border-color: var(--accent); background: var(--bg); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 20%, transparent); }
+#dropzone:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+#dropzone .hint { color: var(--muted); font-size: 0.85rem; }
+
+.samples { margin-top: 1.5rem; }
+.samples-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.5rem; }
+.sample-cards { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.sample-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem 0.5rem 0.5rem;
+  text-align: left;
+}
+.sample-card:hover, .sample-card:focus-visible { border-color: var(--accent); }
+.sample-card img { width: 44px; height: 56px; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--line); }
+.sample-card .name { font-size: 0.82rem; font-weight: 600; }
+.sample-attribution { font-size: 0.75rem; color: var(--muted); margin-top: 0.6rem; }
+
+#steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; margin: 1.75rem 0; }
+.step-box { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 0.9rem 0.5rem; text-align: center; }
+.step-box .label { font-family: var(--font-mono); font-weight: 600; font-size: 0.82rem; }
+.step-box .status { font-size: 0.76rem; color: var(--muted); margin-top: 0.3rem; }
+.step-box.done { background: var(--bg); border-color: var(--ok); }
+.step-box.done .status { color: var(--ok); }
+@media (max-width: 560px) { #steps { grid-template-columns: repeat(2, 1fr); } }
+
+.result-card, .error-card {
+  border-radius: var(--radius);
+  padding: 1.4rem;
+  margin-top: 1.25rem;
+}
+.result-card[hidden], .error-card[hidden] { display: none; }
+.result-card { background: var(--surface); border: 1px solid var(--line); }
+.result-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.result-facts { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.9rem; margin: 0 0 1rem; font-size: 0.92rem; }
+.result-facts dt { color: var(--muted); font-size: 0.85rem; }
+.result-facts dd { margin: 0; font-family: var(--font-mono); }
+.result-explanation { font-size: 0.9rem; white-space: pre-line; border-left: 2px solid var(--line-strong); padding-left: 0.75rem; color: var(--ink); }
+.result-block { margin-top: 1.25rem; }
+.result-block[hidden] { display: none; }
+.result-block h4 { margin-bottom: 0.5rem; }
+.checklist, #rAnomalies, #rPriceHistory { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.87rem; }
+.checklist li, #rAnomalies li, #rPriceHistory li { display: flex; align-items: baseline; gap: 0.5rem; border-bottom: 1px solid var(--line); padding-bottom: 0.4rem; }
+.check-status { font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.02em; flex-shrink: 0; }
+.check-status.pass { color: var(--ok); }
+.check-status.fail { color: var(--bad); }
+.check-rule { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); flex-shrink: 0; }
+
+.risk-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid;
+  box-shadow: 0 0 4px color-mix(in srgb, currentColor 30%, transparent);
+}
+.risk-score { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; line-height: 1; }
+.risk-level { font-family: var(--font-mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1; }
+.risk-badge--passed { color: var(--ok); border-color: var(--ok); }
+.risk-badge--review_required { color: var(--warn); border-color: var(--warn); }
+.risk-badge--rejected { color: var(--bad); border-color: var(--bad); }
+
+.trace-bars { display: flex; flex-direction: column; gap: 0.4rem; }
+.trace-row { display: grid; grid-template-columns: 6rem 1fr 4.5rem; align-items: center; gap: 0.6rem; font-size: 0.78rem; }
+.trace-row .trace-label { font-family: var(--font-mono); color: var(--muted); }
+.trace-row .trace-track { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); height: 0.6rem; overflow: hidden; }
+/* display:block sart - <span> varsayilan olarak inline ve inline ogelerde
+   width/height uygulanmaz, dolgu 0x0 kalip cubuk hic cizilmiyordu. */
+.trace-row .trace-fill { display: block; background: var(--accent); height: 100%; }
+.trace-row .trace-value { font-family: var(--font-mono); text-align: right; color: var(--muted); }
+
+.error-card { background: var(--bg); border: 1px solid var(--bad); color: var(--bad); }
+
+#newUploadBtn, .secondary-btn {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+.secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#bulkInput { margin-bottom: 0.5rem; }
+#bulkWarning { display: none; color: var(--bad); font-size: 0.85rem; margin-bottom: 0.5rem; }
+#bulkSubmitBtn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius);
+  font-size: 0.88rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+#bulkSubmitBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+#bulkRows { display: flex; flex-direction: column; gap: 0.5rem; }
+.bulk-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.8rem;
+  font-size: 0.85rem;
+}
+.bulk-row.done { border-color: var(--ok); background: var(--bg); }
+.bulk-row.error { border-color: var(--bad); background: var(--bg); }
+.bulk-row .bulk-file { font-family: var(--font-mono); font-weight: 600; }
+.bulk-row .bulk-status { color: var(--muted); text-align: right; display: flex; align-items: center; gap: 0.4rem; }
+.bulk-row.done .bulk-status { color: var(--ok); }
+.bulk-row.error .bulk-status { color: var(--bad); }
+.bulk-remove { border: none; background: transparent; color: var(--muted); font-size: 0.95rem; line-height: 1; padding: 0 0.15rem; }
+.bulk-remove:hover { color: var(--bad); }
+#bulkSummary { display: none; margin-top: 1rem; font-size: 0.88rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1rem; }
+
+footer.site-footer { padding: 2rem 0; text-align: center; color: var(--muted); font-size: 0.82rem; }

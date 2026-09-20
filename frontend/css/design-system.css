@@ -1,0 +1,198 @@
+/* design-system.css
+   Renk/tipografi tokenlari + temel reset. "SaaS kart" degil, ince cizgilerle ayrilmis
+   rapor/defter hissi korunuyor; palet acik ada gazi -> koyu+neon -> simdi acik mavi
+   olarak birkac kez bilincli olarak degisti, bu son karar. Gradient/emoji yok,
+   glow'lar statik (animasyonsuz) - prefers-reduced-motion zaten hicbir animasyona
+   ihtiyac duymadigi icin otomatik uyumlu. Bu dosya frontend/dashboard.html tarafindan
+   da paylasiliyor (bkz. dashboard.html <head>). */
+
+:root {
+  --bg: #EAF3FB;
+  --surface: #DCEAF6;
+  --ink: #232A30;
+  --muted: #6B7A87;
+  --accent: #2F80C7;
+  --ok: #2E7A57;
+  --warn: #B8860B;
+  --bad: #C0392B;
+
+  /* Govde metni icin: --ink kadar sert, --muted kadar soluk degil. Uzun paragraflar
+     (.lede, .section-intro) --muted'de fazla acik kaliyordu. */
+  --ink-soft: #3E4952;
+
+  /* Palette'te tanimli degil, ince ayirici cizgiler icin turetildi (bg/surface arasi ton). */
+  --line: #C3D6E5;
+  --line-strong: #A6C0D6;
+  --radius: 2px;
+
+  /* Geist: modern, notr grotesk - "engineering workspace" hissi icin secildi
+     (Sora fazla geometrik/karakterli, Manrope daha yumusak/az teknik kaliyordu).
+     Basliklar ve govde ayni aileden; veri/teknik etiketler mono. */
+  --font-display: "Geist", "Inter", system-ui, -apple-system, sans-serif;
+  --font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+
+  /* Tip olcegi (responsive) */
+  --size-display: clamp(2.5rem, 5.2vw, 4.25rem);
+  --size-section: clamp(1.75rem, 2.9vw, 2.35rem);
+  --size-card: 1.125rem;
+  --size-body: 1rem;
+  --size-label: 0.75rem;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================ TIPOGRAFI SISTEMI ============================
+   Bes seviye. Her seviyede aile/boyut/agirlik/satir yuksekligi/harf araligi
+   birlikte tanimli - tek basina font-family degistirmek yeterli degil.
+
+     Display        h1  / .type-display  - hero basligi
+     Section        h2  / .type-section  - bolum basligi
+     Card Title     h3  / .type-card     - kart & panel basligi
+     Body           body, p              - govde metni
+     Technical      h4  / .type-label    - mono teknik etiket (buyuk harf)
+   =========================================================================== */
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .type-display, .type-section, .type-card {
+  font-family: var(--font-display);
+  color: var(--ink);
+  margin: 0 0 0.5rem;
+}
+
+h1, .type-display {
+  font-size: var(--size-display);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.032em;
+}
+
+h2, .type-section {
+  font-size: var(--size-section);
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: -0.021em;
+}
+
+h3, .type-card {
+  font-size: var(--size-card);
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: -0.012em;
+}
+
+h4, .type-label {
+  font-family: var(--font-mono);
+  font-size: var(--size-label);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.5rem;
+}
+
+p { margin: 0 0 0.75rem; max-width: 68ch; }
+
+code, pre, .mono, .num {
+  font-family: var(--font-mono);
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+a:hover { text-decoration-thickness: 2px; }
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.6rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.wrap {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+@media (max-width: 620px) {
+  .wrap { padding: 0 1.1rem; }
+}
+
+.section-intro {
+  color: var(--ink-soft);
+  max-width: 66ch;
+  line-height: 1.6;
+}
+
+/* Klavye/ekran okuyucu icin gorsel olarak gizli ama odaklanabilir tutar
+   (display:none ile hem gorsel hem erisilebilirlik agacindan cikar, bu yuzden
+   kullanilmiyor - orn. #fileInput icin). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Teknik kapsul etiketi - basligin onune gecmemesi icin kucuk, notr ve sade. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+}

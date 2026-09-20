@@ -3,54 +3,46 @@
 <head>
 <meta charset="UTF-8">
 <title>Fatura Paneli</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/design-system.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
-  :root {
-    --border: #d8dde3;
-    --bg: #f5f7fa;
-    --card: #ffffff;
-    --text: #1f2937;
-    --muted: #6b7280;
-    --accent: #2563eb;
-    --ok: #16a34a;
-    --err: #dc2626;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 2rem 1rem;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    background: var(--bg);
-    color: var(--text);
-  }
-  .wrap { max-width: 1000px; margin: 0 auto; }
+  /* Renk/font tokenlari css/design-system.css'ten geliyor (--bg, --surface, --ink, --muted,
+     --accent, --ok, --warn, --bad, --line, --font-*) - burada sadece bu sayfaya ozgu duzen var. */
+  body { padding: 2rem 1rem; }
+  /* max-width/margin design-system.css'teki .wrap'tan geliyor (ana sayfa ile ayni genislik). */
+  .wrap { padding: 0; }
   header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem; }
-  h1 { font-size: 1.4rem; margin: 0; }
+  /* Sayfa basligi hero olcusunde degil, bolum basligi olcusunde. */
+  h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin: 0; }
   header a { color: var(--accent); text-decoration: none; font-size: 0.85rem; }
 
   .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
-  .card h2 { font-size: 0.95rem; margin: 0 0 0.75rem; color: var(--muted); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+  .card h2 { font-family: var(--font-sans); font-size: 0.95rem; margin: 0 0 0.75rem; color: var(--muted); text-transform: none; letter-spacing: normal; }
   .card canvas { max-height: 220px; }
 
   #filterInput {
     width: 100%;
     padding: 0.55rem 0.75rem;
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
     border-radius: 8px;
     font-size: 0.9rem;
     margin-bottom: 0.75rem;
   }
 
-  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  th, td { text-align: left; padding: 0.6rem 0.75rem; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
-  th { background: #f9fafb; color: var(--muted); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 0.6rem 0.75rem; font-size: 0.85rem; border-bottom: 1px solid var(--line); }
+  th { font-family: var(--font-sans); background: var(--bg); color: var(--muted); font-weight: 600; }
+  td { font-family: var(--font-mono); }
   tr:last-child td { border-bottom: none; }
   .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-  .badge.ok { background: #ecfdf5; color: var(--ok); }
-  .badge.warn { background: #fef2f2; color: var(--err); }
+  .badge.ok { background: color-mix(in srgb, var(--ok) 14%, var(--bg)); color: var(--ok); }
+  .badge.warn { background: color-mix(in srgb, var(--bad) 14%, var(--bg)); color: var(--bad); }
   #emptyMsg { color: var(--muted); font-size: 0.85rem; padding: 1rem; text-align: center; display: none; }
-  #loadError { color: var(--err); font-size: 0.9rem; display: none; margin-bottom: 1rem; }
+  #loadError { color: var(--bad); font-size: 0.9rem; display: none; margin-bottom: 1rem; }
 </style>
 </head>
 <body>
@@ -134,6 +126,10 @@ function renderTable(rows) {
   }
 }
 
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function renderCharts(rows) {
   const dailyCounts = {};
   let validCount = 0;
@@ -146,17 +142,25 @@ function renderCharts(rows) {
   }
 
   const days = Object.keys(dailyCounts).sort();
+  const accent = cssVar("--accent");
+  const ok = cssVar("--ok");
+  const bad = cssVar("--bad");
+  const muted = cssVar("--muted");
+  const line = cssVar("--line");
 
   new Chart(document.getElementById("dailyChart"), {
     type: "bar",
     data: {
       labels: days,
-      datasets: [{ label: "Fatura sayısı", data: days.map((d) => dailyCounts[d]), backgroundColor: "#2563eb" }],
+      datasets: [{ label: "Fatura sayısı", data: days.map((d) => dailyCounts[d]), backgroundColor: accent }],
     },
     options: {
       responsive: true,
       plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0, color: muted }, grid: { color: line } },
+        x: { ticks: { color: muted }, grid: { color: line } },
+      },
     },
   });
 
@@ -164,9 +168,9 @@ function renderCharts(rows) {
     type: "doughnut",
     data: {
       labels: ["Geçerli", "Anomalili"],
-      datasets: [{ data: [validCount, invalidCount], backgroundColor: ["#16a34a", "#dc2626"] }],
+      datasets: [{ data: [validCount, invalidCount], backgroundColor: [ok, bad] }],
     },
-    options: { responsive: true },
+    options: { responsive: true, plugins: { legend: { labels: { color: muted } } } },
   });
 }
 
