@@ -7,7 +7,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/design-system.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<!-- Tam surume sabit: "@4" kayan bir major surum, CDN'den habersiz bir minor/patch
+     guncellemesi paneli sessizce bozabilir ya da degistirebilir. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 <style>
   /* Renk/font tokenlari css/design-system.css'ten geliyor (--bg, --surface, --ink, --muted,
      --accent, --ok, --warn, --bad, --line, --font-*) - burada sadece bu sayfaya ozgu duzen var. */
@@ -109,19 +111,32 @@ function renderTable(rows) {
   tbody.innerHTML = "";
   document.getElementById("emptyMsg").style.display = rows.length === 0 ? "block" : "none";
 
+  /* Hucreler innerHTML ile degil textContent ile yaziliyor: invoice_no/seller_name
+     gibi alanlar fatura GORSELINDEN cikariliyor, yani icerigi disaridan belirlenebilir.
+     Kacissiz sablona konuldugunda kotu niyetli bir fatura kalici (stored) XSS'e donusuyordu. */
   for (const row of rows) {
     const tr = document.createElement("tr");
-    const validBadge = row.is_valid
-      ? '<span class="badge ok">Geçerli</span>'
-      : '<span class="badge warn">Anomali var</span>';
-    tr.innerHTML = `
-      <td>${row.invoice_no ?? "-"}</td>
-      <td>${row.seller_name ?? "-"}</td>
-      <td>${row.grand_total != null ? row.grand_total + " TL" : "-"}</td>
-      <td>${row.anomaly_count}</td>
-      <td>${formatDate(row.processed_at)}</td>
-      <td>${validBadge}</td>
-    `;
+
+    const cells = [
+      row.invoice_no ?? "-",
+      row.seller_name ?? "-",
+      row.grand_total != null ? row.grand_total + " TL" : "-",
+      String(row.anomaly_count),
+      formatDate(row.processed_at),
+    ];
+    for (const value of cells) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+
+    const statusTd = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = row.is_valid ? "badge ok" : "badge warn";
+    badge.textContent = row.is_valid ? "Geçerli" : "Anomali var";
+    statusTd.appendChild(badge);
+    tr.appendChild(statusTd);
+
     tbody.appendChild(tr);
   }
 }

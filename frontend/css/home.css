@@ -195,7 +195,6 @@ section > .wrap > h2 { margin-bottom: 0.4rem; }
 .checker-header:hover .checker-name, .checker-header:focus-visible .checker-name { color: var(--accent); }
 .checker-name { font-family: var(--font-mono); font-weight: 600; font-size: 0.95rem; }
 .checker-summary { color: var(--muted); font-size: 0.85rem; text-align: right; }
-.checker-toggle { font-family: var(--font-mono); color: var(--muted); margin-left: 0.75rem; }
 .checker-body {
   padding: 0 0 1.5rem;
   border-bottom: 1px solid var(--line);

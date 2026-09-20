@@ -331,6 +331,9 @@ function bulkRowId(index) {
   return `bulk-row-${index}`;
 }
 
+/* Satirlar innerHTML ile degil DOM ile kuruluyor: file.name kullanici kontrolunde
+   (orn. `<img src=x onerror=...>.png` adli bir dosya) ve sablona kacissiz girdiginde
+   calisan HTML'e donusuyordu. */
 function renderBulkRows({ removable }) {
   bulkRows.innerHTML = "";
   bulkSummary.style.display = "none";
@@ -338,24 +341,32 @@ function renderBulkRows({ removable }) {
     const row = document.createElement("div");
     row.className = "bulk-row";
     row.id = bulkRowId(i + 1);
-    const removeBtn = removable
-      ? `<button type="button" class="bulk-remove" data-index="${i}" title="Kaldır">×</button>`
-      : "";
-    row.innerHTML = `
-      <span class="bulk-file">${i + 1}. ${file.name}</span>
-      <span class="bulk-status">Bekliyor ${removeBtn}</span>
-    `;
-    bulkRows.appendChild(row);
-  });
-  if (removable) {
-    bulkRows.querySelectorAll(".bulk-remove").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        selectedBulkFiles.splice(Number(btn.dataset.index), 1);
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "bulk-file";
+    nameEl.textContent = `${i + 1}. ${file.name}`;
+
+    const statusEl = document.createElement("span");
+    statusEl.className = "bulk-status";
+    statusEl.textContent = "Bekliyor";
+
+    if (removable) {
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "bulk-remove";
+      removeBtn.title = "Kaldır";
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", () => {
+        selectedBulkFiles.splice(i, 1);
         renderBulkRows({ removable: true });
         updateBulkSubmitState();
       });
-    });
-  }
+      statusEl.append(" ", removeBtn);
+    }
+
+    row.append(nameEl, statusEl);
+    bulkRows.appendChild(row);
+  });
 }
 
 function updateBulkRow(payload) {

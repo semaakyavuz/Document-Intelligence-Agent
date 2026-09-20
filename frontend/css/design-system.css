@@ -57,11 +57,11 @@ html { scroll-behavior: smooth; }
    Bes seviye. Her seviyede aile/boyut/agirlik/satir yuksekligi/harf araligi
    birlikte tanimli - tek basina font-family degistirmek yeterli degil.
 
-     Display        h1  / .type-display  - hero basligi
-     Section        h2  / .type-section  - bolum basligi
-     Card Title     h3  / .type-card     - kart & panel basligi
-     Body           body, p              - govde metni
-     Technical      h4  / .type-label    - mono teknik etiket (buyuk harf)
+     Display        h1        - hero basligi
+     Section        h2        - bolum basligi
+     Card Title     h3        - kart & panel basligi
+     Body           body, p   - govde metni
+     Technical      h4        - mono teknik etiket (buyuk harf)
    =========================================================================== */
 
 body {
@@ -76,34 +76,34 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, .type-display, .type-section, .type-card {
+h1, h2, h3 {
   font-family: var(--font-display);
   color: var(--ink);
   margin: 0 0 0.5rem;
 }
 
-h1, .type-display {
+h1 {
   font-size: var(--size-display);
   font-weight: 600;
   line-height: 1.04;
   letter-spacing: -0.032em;
 }
 
-h2, .type-section {
+h2 {
   font-size: var(--size-section);
   font-weight: 600;
   line-height: 1.16;
   letter-spacing: -0.021em;
 }
 
-h3, .type-card {
+h3 {
   font-size: var(--size-card);
   font-weight: 600;
   line-height: 1.32;
   letter-spacing: -0.012em;
 }
 
-h4, .type-label {
+h4 {
   font-family: var(--font-mono);
   font-size: var(--size-label);
   font-weight: 500;
@@ -116,7 +116,7 @@ h4, .type-label {
 
 p { margin: 0 0 0.75rem; max-width: 68ch; }
 
-code, pre, .mono, .num {
+code, pre {
   font-family: var(--font-mono);
 }
 
