@@ -19,6 +19,7 @@ veritabani (gercek Postgres) gerektirmez; yalnizca sunucu/TestClient gercekten
 baslarken (uvicorn ile ya da testte "with TestClient(app) as client:") devreye girer.
 """
 
+import asyncio
 import datetime
 import json
 import tempfile
@@ -93,12 +94,33 @@ GraphDep = Annotated[CompiledStateGraph, Depends(get_graph)]
 DbDep = Annotated[Session, Depends(get_db)]
 
 
+async def _save_upload(file: UploadFile) -> tuple[str, str]:
+    """Yuklenen gorseli gecici bir dosyaya yazar; (kayit_icin_dosya_adi, gecici_yol) doner.
+
+    Uc yukleme ucu da (tek/stream/toplu) ayni isi yapiyordu; ortak hale getirildi.
+
+    NamedTemporaryFile() ve write() senkron, yani event loop'u bloklayan cagrilar -
+    asyncio.to_thread ile ayri bir thread'de kosuyorlar. Ozellikle toplu yuklemede
+    (en fazla MAX_BULK_FILES dosya, sirayla yaziliyor) bloklama birikiyordu.
+
+    Dosya adi yalnizca uzantiyi almak icin kullanilir; gecici dosyanin adini
+    tempfile kendi uretir, yani istemciden gelen ad yola hic girmez.
+    """
+    suffix = Path(file.filename).suffix if file.filename else ""
+    data = await file.read()
+
+    def _write_to_temp() -> str:
+        with tempfile.NamedTemporaryFile(suffix=suffix or ".png", delete=False) as tmp:
+            tmp.write(data)
+            return tmp.name
+
+    tmp_path = await asyncio.to_thread(_write_to_temp)
+    return file.filename or Path(tmp_path).name, tmp_path
+
+
 @router.post("/invoices", status_code=201)
 async def create_invoice(file: Annotated[UploadFile, File()], graph: GraphDep, db: DbDep) -> dict:
-    suffix = Path(file.filename).suffix if file.filename else ""
-    with tempfile.NamedTemporaryFile(suffix=suffix or ".png", delete=False) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
+    image_filename, tmp_path = await _save_upload(file)
 
     try:
         raw_result = await graph.ainvoke(PipelineState(image_path=tmp_path))
@@ -109,7 +131,7 @@ async def create_invoice(file: Annotated[UploadFile, File()], graph: GraphDep, d
         Path(tmp_path).unlink(missing_ok=True)
 
     final_report = final_state.final_report
-    record = InvoiceRecord.from_final_report(file.filename or Path(tmp_path).name, final_report)
+    record = InvoiceRecord.from_final_report(image_filename, final_report)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -170,15 +192,12 @@ async def _stream_pipeline_events(
 async def create_invoice_stream(request: Request, file: Annotated[UploadFile, File()]) -> StreamingResponse:
     """POST /invoices ile ayni isi yapar, ama sonucu tek seferde degil, her ajan
     bitince bir SSE olayiyla akitir (bkz. frontend/upload.html)."""
-    suffix = Path(file.filename).suffix if file.filename else ""
-    with tempfile.NamedTemporaryFile(suffix=suffix or ".png", delete=False) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
+    image_filename, tmp_path = await _save_upload(file)
 
     generator = _stream_pipeline_events(
         graph=request.app.state.graph,
         session_factory=request.app.state.session_factory,
-        image_filename=file.filename or Path(tmp_path).name,
+        image_filename=image_filename,
         tmp_path=tmp_path,
     )
     return StreamingResponse(generator, media_type="text/event-stream")
@@ -243,10 +262,7 @@ async def create_invoices_bulk(
 
     saved: list[tuple[str, str]] = []
     for file in files:
-        suffix = Path(file.filename).suffix if file.filename else ""
-        with tempfile.NamedTemporaryFile(suffix=suffix or ".png", delete=False) as tmp:
-            tmp.write(await file.read())
-            saved.append((file.filename or Path(tmp.name).name, tmp.name))
+        saved.append(await _save_upload(file))
 
     generator = _stream_bulk_events(
         graph=request.app.state.graph,
