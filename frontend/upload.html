@@ -114,9 +114,11 @@
               değildir, sunucuya hiçbir veri göndermez ve gerçek denetim sonucunu etkilemez.
             </p>
             <div class="demo-inputs">
-              <label>Miktar <input type="number" id="demoQty" value="2" step="any"></label>
-              <label>Birim Fiyat (TL) <input type="number" id="demoUnitPrice" value="450" step="any"></label>
-              <label>Kalem Toplamı (TL) <input type="number" id="demoLineTotal" value="900" step="any"></label>
+              <!-- input'lar label icinde kaliyor (CSS duzeni buna bagli), ayrica
+                   for/id ile acik iliskilendirme de var. -->
+              <label for="demoQty">Miktar <input type="number" id="demoQty" value="2" step="any"></label>
+              <label for="demoUnitPrice">Birim Fiyat (TL) <input type="number" id="demoUnitPrice" value="450" step="any"></label>
+              <label for="demoLineTotal">Kalem Toplamı (TL) <input type="number" id="demoLineTotal" value="900" step="any"></label>
             </div>
             <p id="demoResult" class="demo-result"></p>
           </div>
@@ -296,6 +298,7 @@
       <div class="tab-panel" id="panel-bulk" hidden>
         <div class="split-screen">
           <div class="split-main">
+            <label for="bulkInput" class="visually-hidden">Fatura görsellerini seçin (en fazla 10)</label>
             <input type="file" id="bulkInput" accept="image/*" multiple>
             <div id="bulkWarning">En fazla 10 fatura aynı anda yüklenebilir. Lütfen seçimi azaltın.</div>
             <div style="margin-bottom: 0.75rem;">

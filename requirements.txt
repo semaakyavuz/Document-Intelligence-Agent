@@ -1,6 +1,9 @@
 # generate_invoices.py
 Faker
-Pillow
+# >=10.1: ImageFont.load_default() "size" argumanini bu surumde aldi. Font bulunamadigi
+# fallback dalinda (generate_invoices.py::_font) kullaniliyor - eski bir Pillow'da o dal
+# TypeError verir ve yalnizca sistem fontu olmayan ortamlarda tetiklendigi icin sessiz kalir.
+Pillow>=10.1
 
 # augment_invoices.py
 augraphy

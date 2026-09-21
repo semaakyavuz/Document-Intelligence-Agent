@@ -152,9 +152,9 @@ document.querySelectorAll(".checker-header").forEach((header) => {
    (miktar*birim_fiyat ~= kalem_toplami, 0.01 TL). Hicbir veri sunucuya gitmiyor. */
 const MATH_TOLERANCE = 0.01;
 function updateMathDemo() {
-  const qty = parseFloat(document.getElementById("demoQty").value) || 0;
-  const unitPrice = parseFloat(document.getElementById("demoUnitPrice").value) || 0;
-  const lineTotal = parseFloat(document.getElementById("demoLineTotal").value) || 0;
+  const qty = Number.parseFloat(document.getElementById("demoQty").value) || 0;
+  const unitPrice = Number.parseFloat(document.getElementById("demoUnitPrice").value) || 0;
+  const lineTotal = Number.parseFloat(document.getElementById("demoLineTotal").value) || 0;
   const expected = Math.round(qty * unitPrice * 100) / 100;
   const diff = Math.abs(expected - lineTotal);
   const result = document.getElementById("demoResult");
