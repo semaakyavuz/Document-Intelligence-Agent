@@ -68,7 +68,9 @@ def test_agent_passes_image_path_and_does_not_mutate_input():
 
     prompt, image_path, max_tokens = provider.calls[0]
     assert image_path == "data/golden/images/invoice_0003_aug04.png"
-    assert "invoice_no" in prompt and "grand_total" in prompt  # prompt semayi iceriyor
+    # prompt semayi iceriyor
+    assert "invoice_no" in prompt
+    assert "grand_total" in prompt
     assert max_tokens == VisionAgent.MAX_OUTPUT_TOKENS  # donguye giren model dakikalarca beklenmesin
     assert original.raw_extraction is None  # model_copy: girdi nesnesi degismedi
     assert result.validation_errors == ["onceki hata"]  # basarili parse eski hatalari silmez
@@ -82,8 +84,10 @@ def test_provider_error_is_not_swallowed():
         def generate(self, prompt: str, image_path: str | None = None, max_tokens: int | None = None) -> str:
             raise ProviderResponseError("Ollama JSON olmayan govde dondu")
 
+    agent = VisionAgent(FailingProvider())
+    state = PipelineState(image_path="data/golden/images/x.png")
     with pytest.raises(ProviderResponseError):
-        VisionAgent(FailingProvider()).run(PipelineState(image_path="data/golden/images/x.png"))
+        agent.run(state)
 
 
 @pytest.mark.parametrize(
@@ -101,5 +105,6 @@ def test_parser_handles_common_wrappings(text):
 
 
 def test_parser_raises_on_no_json():
+    parser = JsonResponseParser()
     with pytest.raises(ValueError, match="JSON"):
-        JsonResponseParser().parse("Uzgunum, gorseli okuyamadim.")
+        parser.parse("Uzgunum, gorseli okuyamadim.")

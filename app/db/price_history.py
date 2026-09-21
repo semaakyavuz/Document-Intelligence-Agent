@@ -23,6 +23,24 @@ def _normalize(description: str) -> str:
     return description.strip().casefold()
 
 
+def _record_item_price(item: object, prices_by_key: dict[str, list[float]]) -> None:
+    """Tek kalemin birim fiyatini, ilgilendigimiz bir urunse prices_by_key'e YERINDE ekler.
+
+    Ilgilenmedigimiz urun, okunamayan aciklama/fiyat ya da dolmus kota (bkz.
+    MAX_PRICES_PER_DESCRIPTION) durumunda sessizce hicbir sey yapmaz."""
+    if not isinstance(item, dict):
+        return
+    description = item.get("description")
+    if not isinstance(description, str):
+        return
+    prices = prices_by_key.get(_normalize(description))
+    if prices is None or len(prices) >= MAX_PRICES_PER_DESCRIPTION:
+        return
+    unit_price = item.get("unit_price")
+    if isinstance(unit_price, (int, float)) and not isinstance(unit_price, bool):
+        prices.append(float(unit_price))
+
+
 def get_price_history(session: Session, descriptions: list[str]) -> list[dict]:
     """Verilen urun aciklamalari icin, veritabanindaki en yeni MAX_RECORDS_SCANNED
     kayitta gorulen birim fiyatlari toplar. Bir aciklama icin hic eslesme yoksa
@@ -43,18 +61,7 @@ def get_price_history(session: Session, descriptions: list[str]) -> list[dict]:
         if not full_report:
             continue
         for item in full_report.get("items") or []:
-            if not isinstance(item, dict):
-                continue
-            description = item.get("description")
-            if not isinstance(description, str):
-                continue
-            key = _normalize(description)
-            prices = prices_by_key.get(key)
-            if prices is None or len(prices) >= MAX_PRICES_PER_DESCRIPTION:
-                continue
-            unit_price = item.get("unit_price")
-            if isinstance(unit_price, (int, float)) and not isinstance(unit_price, bool):
-                prices.append(float(unit_price))
+            _record_item_price(item, prices_by_key)
 
     return [
         {"description": targets[key], "previous_prices": prices}

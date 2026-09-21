@@ -131,21 +131,27 @@ class FieldComparator:
         if isinstance(expected, str):
             return isinstance(found, str) and self._normalize(expected) == self._normalize(found)
         if isinstance(expected, list):
-            return (
-                isinstance(found, list)
-                and len(expected) == len(found)
-                and all(self.equal(e, f) for e, f in zip(expected, found))
-            )
+            return self._lists_equal(expected, found)
         if isinstance(expected, dict):
-            if not isinstance(found, dict):
-                return False
-            for key, value in expected.items():
-                if value is None and key in FIELDS_MAY_BE_UNKNOWN:
-                    continue  # bu alan kaynak veride hic yok (bkz. FIELDS_MAY_BE_UNKNOWN) - N/A, karsilastirilmaz
-                if not self.equal(value, found.get(key)):
-                    return False
-            return True
+            return self._dicts_equal(expected, found)
         return expected == found
+
+    def _lists_equal(self, expected: list, found) -> bool:
+        return (
+            isinstance(found, list)
+            and len(expected) == len(found)
+            and all(self.equal(e, f) for e, f in zip(expected, found))
+        )
+
+    def _dicts_equal(self, expected: dict, found) -> bool:
+        if not isinstance(found, dict):
+            return False
+        for key, value in expected.items():
+            if value is None and key in FIELDS_MAY_BE_UNKNOWN:
+                continue  # bu alan kaynak veride hic yok (bkz. FIELDS_MAY_BE_UNKNOWN) - N/A, karsilastirilmaz
+            if not self.equal(value, found.get(key)):
+                return False
+        return True
 
     def equal_date(self, expected, found) -> bool | None:
         """Tarihleri format farkindan bagimsiz (DD.MM.YYYY vs MM/DD/YYYY gibi) karsilastirir.
@@ -356,9 +362,7 @@ class VisionAgentEvaluator:
             try:
                 expected = sample.load_label()
             except LabelError as exc:
-                report.record_label_error(sample.stem, str(exc))
-                self._emit(sample.stem, "label_error", None, None, None, [str(exc)])
-                print(f"[{index}/{count}] {sample.stem}  ETIKET HATASI: {exc}", flush=True)
+                self._record_label_error(sample, index, count, report, exc)
                 continue
 
             started = time.perf_counter()
@@ -367,12 +371,11 @@ class VisionAgentEvaluator:
             except ProviderUnavailableError:
                 raise
             except ProviderError as exc:
+                # elapsed/durations_s bilerek BURADA hesaplaniyor (helper icinde degil):
+                # olcum noktasi tek govdeli haldekiyle birebir ayni kalsin.
                 elapsed = time.perf_counter() - started
                 report.durations_s.append(elapsed)
-                report.record_provider_error(sample.stem, str(exc))
-                fields = self._score(sample.stem, expected, {}, report)
-                self._emit(sample.stem, "provider_error", elapsed, fields, None, [str(exc)])
-                print(f"[{index}/{count}] {sample.stem}  SAGLAYICI HATASI: {exc}", flush=True)
+                self._record_provider_error(sample, index, count, report, expected, exc, elapsed)
                 self._pause()
                 continue
             except KeyboardInterrupt:
@@ -381,18 +384,45 @@ class VisionAgentEvaluator:
             elapsed = time.perf_counter() - started
             report.durations_s.append(elapsed)
 
-            if state.raw_extraction is None:
-                report.record_parse_failure(sample.stem, state.validation_errors)
-                status, errors = "parse_failure", list(state.validation_errors)
-            else:
-                status, errors = "ok", []
-            fields = self._score(sample.stem, expected, state.raw_extraction or {}, report)
-            self._emit(sample.stem, status, elapsed, fields, state.raw_extraction, errors)
-
-            suffix = "  PARSE HATASI" if status == "parse_failure" else ""
-            print(f"[{index}/{count}] {sample.stem}  ({elapsed:.1f} sn){suffix}", flush=True)
+            self._record_result(sample, index, count, report, expected, state, elapsed)
             self._pause()
         return report
+
+    # --- evaluate()'in yan etkisiz kayit/yazdirma adimlari -----------------------
+    # Yalnizca rapor guncelleme + emit + ekrana yazma yapiyorlar; kontrol akisi
+    # (raise / break / continue) bilerek evaluate() icinde kaldi.
+
+    def _record_label_error(
+        self, sample: GoldenSample, index: int, count: int,
+        report: EvaluationReport, exc: Exception,
+    ) -> None:
+        report.record_label_error(sample.stem, str(exc))
+        self._emit(sample.stem, "label_error", None, None, None, [str(exc)])
+        print(f"[{index}/{count}] {sample.stem}  ETIKET HATASI: {exc}", flush=True)
+
+    def _record_provider_error(
+        self, sample: GoldenSample, index: int, count: int, report: EvaluationReport,
+        expected: dict, exc: Exception, elapsed: float,
+    ) -> None:
+        report.record_provider_error(sample.stem, str(exc))
+        fields = self._score(sample.stem, expected, {}, report)
+        self._emit(sample.stem, "provider_error", elapsed, fields, None, [str(exc)])
+        print(f"[{index}/{count}] {sample.stem}  SAGLAYICI HATASI: {exc}", flush=True)
+
+    def _record_result(
+        self, sample: GoldenSample, index: int, count: int, report: EvaluationReport,
+        expected: dict, state: PipelineState, elapsed: float,
+    ) -> None:
+        if state.raw_extraction is None:
+            report.record_parse_failure(sample.stem, state.validation_errors)
+            status, errors = "parse_failure", list(state.validation_errors)
+        else:
+            status, errors = "ok", []
+        fields = self._score(sample.stem, expected, state.raw_extraction or {}, report)
+        self._emit(sample.stem, status, elapsed, fields, state.raw_extraction, errors)
+
+        suffix = "  PARSE HATASI" if status == "parse_failure" else ""
+        print(f"[{index}/{count}] {sample.stem}  ({elapsed:.1f} sn){suffix}", flush=True)
 
     def _pause(self) -> None:
         if self.pause_s > 0:

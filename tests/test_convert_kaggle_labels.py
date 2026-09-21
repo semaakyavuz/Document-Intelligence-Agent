@@ -110,15 +110,17 @@ def test_convert_record_raises_on_invalid_json(convert_module):
 def test_convert_record_raises_on_empty_items(convert_module):
     data = json.loads(SAMPLE_JSON)
     data["items"] = []
+    payload = json.dumps(data)
     with pytest.raises(convert_module.ConversionError, match="items"):
-        convert_module.convert_record(json.dumps(data))
+        convert_module.convert_record(payload)
 
 
 def test_convert_record_raises_on_unparseable_subtotal(convert_module):
     data = json.loads(SAMPLE_JSON)
     data["subtotal"]["total"] = "yok"
+    payload = json.dumps(data)
     with pytest.raises(convert_module.ConversionError):
-        convert_module.convert_record(json.dumps(data))
+        convert_module.convert_record(payload)
 
 
 # --- convert_all: dosya sistemi entegrasyonu -----------------------------------

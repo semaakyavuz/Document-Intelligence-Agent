@@ -135,6 +135,15 @@ class InvoiceRenderer:
 
     WIDTH, HEIGHT = 1240, 1754  # A4, 150dpi civari
 
+    # Kolon basliklari uc sablonda da kullaniliyor; render_compact'ta ayrica
+    # values sozlugunun ANAHTARI olarak da geciyor. Tek kaynak olmasi, baslik
+    # listesiyle sozluk anahtarlarinin sessizce ayrisip KeyError vermesini engelliyor.
+    COL_DESC = "Açıklama"
+    COL_QTY = "Miktar"
+    COL_UNIT_PRICE = "Birim Fiyat"
+    COL_VAT = "KDV%"
+    COL_TOTAL = "Tutar"
+
     def __init__(self, font_dir: Path | None = None):
         self._font_reg_path, self._font_bold_path = self._resolve_font_paths(font_dir)
         self.font_regular = self._font(22, bold=False)
@@ -185,7 +194,8 @@ class InvoiceRenderer:
         d.text((60, y), inv.buyer_name, font=self.font_regular, fill="black"); y += 28
         d.text((60, y), inv.buyer_address, font=self.font_regular, fill="black"); y += 50
 
-        headers = ["Açıklama", "Miktar", "Birim Fiyat", "KDV%", "Tutar"]
+        headers = [self.COL_DESC, self.COL_QTY, self.COL_UNIT_PRICE,
+                   self.COL_VAT, self.COL_TOTAL]
         col_x = [60, 560, 700, 920, 1040]
         for h, x in zip(headers, col_x):
             d.text((x, y), h, font=self.font_bold, fill="black")
@@ -236,7 +246,8 @@ class InvoiceRenderer:
         y += 36
 
         # Basliklar ters sirada: Tutar en solda, Aciklama en sagda.
-        headers = ["Tutar", "KDV%", "Birim Fiyat", "Miktar", "Açıklama"]
+        headers = [self.COL_TOTAL, self.COL_VAT, self.COL_UNIT_PRICE,
+                   self.COL_QTY, self.COL_DESC]
         col_x = [60, 220, 340, 520, 660]
         for h, x in zip(headers, col_x):
             d.text((x, y), h, font=bold, fill="black")
@@ -246,11 +257,11 @@ class InvoiceRenderer:
 
         for item in inv.items:
             values = {
-                "Açıklama": item.description,
-                "Miktar": str(item.quantity),
-                "Birim Fiyat": f"{item.unit_price:.2f}",
-                "KDV%": f"%{int(item.vat_rate * 100)}",
-                "Tutar": f"{item.line_total:.2f}",
+                self.COL_DESC: item.description,
+                self.COL_QTY: str(item.quantity),
+                self.COL_UNIT_PRICE: f"{item.unit_price:.2f}",
+                self.COL_VAT: f"%{int(item.vat_rate * 100)}",
+                self.COL_TOTAL: f"{item.line_total:.2f}",
             }
             for h, x in zip(headers, col_x):
                 d.text((x, y), values[h], font=reg, fill="black")
@@ -291,7 +302,8 @@ class InvoiceRenderer:
         d.text((60, y), inv.buyer_name, font=self.font_regular, fill="black"); y += 28
         d.text((60, y), inv.buyer_address, font=self.font_regular, fill="black"); y += 50
 
-        headers = ["Açıklama", "Miktar", "Birim Fiyat", "KDV%", "Tutar"]
+        headers = [self.COL_DESC, self.COL_QTY, self.COL_UNIT_PRICE,
+                   self.COL_VAT, self.COL_TOTAL]
         col_edges = [60, 560, 700, 920, 1040, self.WIDTH - 60]
         row_height = 36
 

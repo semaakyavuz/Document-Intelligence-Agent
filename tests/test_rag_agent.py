@@ -71,8 +71,10 @@ def _agent(fake_server_args, **kwargs) -> RAGAgent:
 
 def test_query_builder_combines_items_vat_and_ids():
     query = RuleQueryBuilder().build(VALID_EXTRACTION)
-    assert "Klavye" in query and "Mouse" in query
-    assert "%20" in query and "%1" in query
+    assert "Klavye" in query
+    assert "Mouse" in query
+    assert "%20" in query
+    assert "%1" in query
     assert "2025123456" in query
     assert "1234567890" in query
 
@@ -154,8 +156,9 @@ def test_run_raises_rule_query_error_when_tool_reports_error(fake_server_args):
     agent = _agent(fake_server_args)
     extraction = {"items": [{"description": "__bos__"}]}
 
+    state = PipelineState(image_path="x.png", raw_extraction=extraction)
     with pytest.raises(RuleQueryError, match="index_knowledge_base"):
-        agent.run(PipelineState(image_path="x.png", raw_extraction=extraction))
+        agent.run(state)
 
 
 def test_arun_is_the_real_async_path(fake_server_args):

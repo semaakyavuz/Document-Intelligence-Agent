@@ -57,7 +57,10 @@
 
       <div class="split-screen">
         <div class="split-main">
-          <div class="agent-flow" role="group" aria-label="Ajan sırası">
+          <!-- fieldset native olarak role="group" tasir, legend de erisilebilir adi
+               verir; ayrica ARIA rolu yazmaya gerek kalmiyor. -->
+          <fieldset class="agent-flow">
+            <legend class="visually-hidden">Ajan sırası</legend>
             <button type="button" class="agent-node" data-agent="vision" aria-expanded="false">
               <span class="agent-index">01</span>
               <span class="agent-name">Vision</span>
@@ -81,7 +84,7 @@
               <span class="agent-name">Report</span>
               <span class="agent-tagline">Risk puanı + özet üretir</span>
             </button>
-          </div>
+          </fieldset>
         </div>
         <div class="split-detail agent-detail" id="agent-detail" aria-live="polite"></div>
       </div>

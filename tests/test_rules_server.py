@@ -108,16 +108,18 @@ def test_query_rules_impl_returns_up_to_top_k_rules(tmp_path):
 def test_query_rules_impl_raises_when_collection_empty(tmp_path):
     collection = _collection(tmp_path, "rules")  # hic .add() edilmedi
 
+    embedding_provider = FakeEmbeddingProvider()
     with pytest.raises(KnowledgeBaseEmptyError, match="index_knowledge_base"):
-        _query_rules_impl("Klavye", top_k=3, embedding_provider=FakeEmbeddingProvider(), collection=collection)
+        _query_rules_impl("Klavye", top_k=3, embedding_provider=embedding_provider, collection=collection)
 
 
 def test_query_rules_impl_does_not_swallow_provider_errors(tmp_path):
     _seed_collection(tmp_path, "rules", {"d1": "herhangi bir kural metni."})
     collection = _collection(tmp_path, "rules")
 
+    embedding_provider = FailingEmbeddingProvider()
     with pytest.raises(ProviderUnavailableError):
-        _query_rules_impl("Klavye", top_k=1, embedding_provider=FailingEmbeddingProvider(), collection=collection)
+        _query_rules_impl("Klavye", top_k=1, embedding_provider=embedding_provider, collection=collection)
 
 
 # --- build_server(): tool dogru bagimliliklarla kayitli mi -------------------------------

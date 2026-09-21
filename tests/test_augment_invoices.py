@@ -124,8 +124,10 @@ def test_geometric_augmenter_keeps_edge_content():
         output = augmenter.augment(image)
         dark_rows, dark_cols = np.where(output.min(axis=2) < 128)
         # Cerceve kadraj kenarina degiyorsa bir kismi kesilmis demektir.
-        assert dark_rows.min() > 0 and dark_rows.max() < output.shape[0] - 1
-        assert dark_cols.min() > 0 and dark_cols.max() < output.shape[1] - 1
+        assert dark_rows.min() > 0
+        assert dark_rows.max() < output.shape[0] - 1
+        assert dark_cols.min() > 0
+        assert dark_cols.max() < output.shape[1] - 1
 
 
 def test_golden_set_is_stable_across_seeds(tmp_path):

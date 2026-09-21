@@ -165,7 +165,8 @@ def test_evaluator_scores_correct_and_wrong_fields(evaluate_module, tmp_path):
     assert report.accuracy("invoice_no") == 1.0
     assert report.accuracy("grand_total") == 0.5
     assert report.mismatches == [{"image": "b", "field": "grand_total", "expected": 4333.97, "found": 1.0}]
-    assert report.parse_failures == [] and report.provider_errors == []
+    assert report.parse_failures == []
+    assert report.provider_errors == []
 
 
 def test_evaluator_continues_after_timeout_and_parse_failure(evaluate_module, tmp_path):
@@ -242,8 +243,9 @@ def test_evaluator_aborts_when_provider_unavailable(evaluate_module, tmp_path):
     provider = ScriptedProvider([ProviderUnavailableError("ollama serve"), json.dumps(LABEL)])
 
     samples = evaluate_module.GoldenDataset(golden).samples()
+    evaluator = evaluate_module.VisionAgentEvaluator(VisionAgent(provider))
     with pytest.raises(ProviderUnavailableError):
-        evaluate_module.VisionAgentEvaluator(VisionAgent(provider)).evaluate(samples)
+        evaluator.evaluate(samples)
 
 
 def test_report_json_is_written_utf8(evaluate_module, tmp_path):
@@ -261,7 +263,8 @@ def test_report_json_is_written_utf8(evaluate_module, tmp_path):
         "model", "overall_accuracy", "accuracy", "totals", "not_applicable",
         "parse_failures", "provider_errors", "label_errors", "mismatches",
     }
-    assert data["accuracy"]["seller_name"] == 0.0 and data["accuracy"]["grand_total"] == 1.0
+    assert data["accuracy"]["seller_name"] == 0.0
+    assert data["accuracy"]["grand_total"] == 1.0
     assert data["mismatches"][0]["found"] == "Yanlış Şirket"  # Turkce karakterler bozulmadan yazildi
 
 
@@ -351,7 +354,8 @@ def test_evaluator_skips_bad_label_without_calling_llm_and_without_crashing(eval
     assert [e["image"] for e in report.label_errors] == ["bad"]
     assert report.total["grand_total"] == 2               # bad, toplamlara girmedi
     assert report.correct["grand_total"] == 2
-    assert report.parse_failures == [] and report.provider_errors == []
+    assert report.parse_failures == []
+    assert report.provider_errors == []
 
 
 def test_evaluator_marks_missing_top_level_field_as_not_applicable(evaluate_module, tmp_path):

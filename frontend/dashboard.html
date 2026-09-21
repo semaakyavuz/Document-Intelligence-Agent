@@ -8,8 +8,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/design-system.css">
 <!-- Tam surume sabit: "@4" kayan bir major surum, CDN'den habersiz bir minor/patch
-     guncellemesi paneli sessizce bozabilir ya da degistirebilir. -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+     guncellemesi paneli sessizce bozabilir ya da degistirebilir.
+     integrity (SRI) + crossorigin: CDN'den beklenmeyen bir icerik gelirse tarayici
+     script'i hic calistirmaz.
+     URL bilerek /dist/chart.umd.js: kisa "@4.4.1" yolunda jsdelivr icerigin basina
+     kendi 274 baytlik "skipped minification" banner'ini ekliyor ve hash o banner
+     metnine baglanmis olurdu. Bu yol npm'deki dosyayi birebir servis ediyor; hash
+     jsdelivr ve unpkg'den indirilen bayt bayt ayni dosya uzerinden dogrulandi. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"
+        integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG"
+        crossorigin="anonymous"></script>
 <style>
   /* Renk/font tokenlari css/design-system.css'ten geliyor (--bg, --surface, --ink, --muted,
      --accent, --ok, --warn, --bad, --line, --font-*) - burada sadece bu sayfaya ozgu duzen var. */
@@ -91,13 +99,20 @@
 <script>
 let allRows = [];
 
+// Kullaniciya gosterilen mesaj bilerek genel tutuluyor (HTTP kodu/ag hatasi detayi
+// panelde ise yaramaz), ama sebep yutulmasin diye konsola yaziliyor.
+function showLoadError(err) {
+  console.error("Kayitlar yuklenemedi:", err);
+  document.getElementById("loadError").style.display = "block";
+}
+
 async function loadInvoices() {
   try {
     const response = await fetch("/invoices?limit=100");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     allRows = await response.json();
   } catch (err) {
-    document.getElementById("loadError").style.display = "block";
+    showLoadError(err);
     return;
   }
   renderTable(allRows);
@@ -198,7 +213,11 @@ document.getElementById("filterInput").addEventListener("input", (e) => {
   renderTable(filtered);
 });
 
-loadInvoices();
+// .catch: fetch hatalari loadInvoices icinde ele aliniyor, ama render adimlari
+// (renderTable/renderCharts) try blogunun DISINDA - orada cikan bir hata, orn.
+// Chart.js hic yuklenmemisse "Chart is not defined", aksi halde sessiz bir
+// unhandled rejection olur ve kullanici bos bir panel gorurdu.
+loadInvoices().catch(showLoadError);
 </script>
 </body>
 </html>

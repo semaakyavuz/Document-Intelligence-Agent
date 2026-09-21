@@ -55,12 +55,24 @@ class MathConsistencyCheck(Checker):
     RULE_NAME = "math_consistency"
     TOLERANCE = 0.01
 
+    # Not: asagidaki yardimcilara bolunmus hali, tek govdeli halinin BIREBIR aynisi -
+    # anomalilerin uretim SIRASI da korunuyor (kalem basina once line_total, sonra
+    # vat_amount; tum kalemler bittikten sonra subtotal, en son grand_total).
     def check(self, extraction: dict, retrieved_rules: list[dict]) -> list[dict]:
-        anomalies: list[dict] = []
         items = extraction.get("items")
         if not isinstance(items, list):
-            return anomalies
+            return []
 
+        anomalies, line_totals, all_line_totals_known = self._check_items(items)
+        anomalies.extend(self._check_totals(extraction, line_totals, all_line_totals_known))
+        return anomalies
+
+    def _check_items(self, items: list) -> tuple[list[dict], list[float], bool]:
+        """Kalem bazli kontroller.
+
+        (anomaliler, bilinen line_total degerleri, hepsi_bilindi_mi) dondurur; son iki
+        deger subtotal kontrolunun calisip calismayacagina karar vermek icin gerekiyor."""
+        anomalies: list[dict] = []
         line_totals: list[float] = []
         all_line_totals_known = True
 
@@ -69,34 +81,54 @@ class MathConsistencyCheck(Checker):
                 all_line_totals_known = False
                 continue
 
-            quantity = _to_float(item.get("quantity"))
-            unit_price = _to_float(item.get("unit_price"))
             line_total = _to_float(item.get("line_total"))
-            vat_rate = _to_float(item.get("vat_rate"))
-            vat_amount = _to_float(item.get("vat_amount"))
-
             if line_total is not None:
                 line_totals.append(line_total)
             else:
                 all_line_totals_known = False
 
-            if quantity is not None and unit_price is not None and line_total is not None:
-                expected = round(quantity * unit_price, 2)
-                if abs(expected - line_total) > self.TOLERANCE:
-                    anomalies.append(_anomaly(
-                        self.RULE_NAME, f"items[{index}].line_total",
-                        f"Beklenen {expected} (miktar*birim_fiyat), bulunan {line_total}.",
-                    ))
+            anomalies.extend(self._check_line_total(index, item, line_total))
+            anomalies.extend(self._check_vat_amount(index, item, line_total))
 
-            if line_total is not None and vat_rate is not None and vat_amount is not None:
-                expected = round(line_total * vat_rate, 2)
-                if abs(expected - vat_amount) > self.TOLERANCE:
-                    anomalies.append(_anomaly(
-                        self.RULE_NAME, f"items[{index}].vat_amount",
-                        f"Beklenen {expected} (satır_toplamı*kdv_oranı), bulunan {vat_amount}.",
-                    ))
+        return anomalies, line_totals, all_line_totals_known
 
+    def _check_line_total(self, index: int, item: dict, line_total: float | None) -> list[dict]:
+        """miktar * birim_fiyat == kalem toplami"""
+        quantity = _to_float(item.get("quantity"))
+        unit_price = _to_float(item.get("unit_price"))
+        if quantity is None or unit_price is None or line_total is None:
+            return []
+
+        expected = round(quantity * unit_price, 2)
+        if abs(expected - line_total) <= self.TOLERANCE:
+            return []
+        return [_anomaly(
+            self.RULE_NAME, f"items[{index}].line_total",
+            f"Beklenen {expected} (miktar*birim_fiyat), bulunan {line_total}.",
+        )]
+
+    def _check_vat_amount(self, index: int, item: dict, line_total: float | None) -> list[dict]:
+        """kalem toplami * kdv orani == kdv tutari"""
+        vat_rate = _to_float(item.get("vat_rate"))
+        vat_amount = _to_float(item.get("vat_amount"))
+        if line_total is None or vat_rate is None or vat_amount is None:
+            return []
+
+        expected = round(line_total * vat_rate, 2)
+        if abs(expected - vat_amount) <= self.TOLERANCE:
+            return []
+        return [_anomaly(
+            self.RULE_NAME, f"items[{index}].vat_amount",
+            f"Beklenen {expected} (satır_toplamı*kdv_oranı), bulunan {vat_amount}.",
+        )]
+
+    def _check_totals(
+        self, extraction: dict, line_totals: list[float], all_line_totals_known: bool
+    ) -> list[dict]:
+        """Fatura duzeyindeki toplamlar: ara toplam ve genel toplam."""
+        anomalies: list[dict] = []
         subtotal = _to_float(extraction.get("subtotal"))
+
         # Tum kalemlerin line_total'i bilinmiyorsa kismi toplamla yanlis pozitif uretmemek
         # icin subtotal kontrolu hic calistirilmaz.
         if all_line_totals_known and line_totals and subtotal is not None:
@@ -215,8 +247,24 @@ class PriceRangeParser:
     ayrica "score"/"source" da tasir ama burada kullanilmaz) ya da duz bir metin
     (testlerde dogrudan parser/checker birim testi icin) olabilir - ikisi de kabul edilir."""
 
+    # Desen parcalanip yorumlandi (re.VERBOSE): tek satirlik hali okunamaz haldeydi ve
+    # gereksiz [\w] sarmalamalari iceriyordu. ESLESTIGI SEY BIREBIR AYNI - eski ve yeni
+    # desen 36 girdide (12'si gercek data/knowledge_base dosyasi) karsilastirildi, fark yok.
+    # VERBOSE guvenli: desende bosluk eslestirmesinin tamami \s ile yapiliyor.
+    _UPPER = "A-ZÇĞİÖŞÜ"  # Turkce buyuk harfler
     _PATTERN = re.compile(
-        r"([A-ZÇĞİÖŞÜ][\w]*(?:\s+[A-ZÇĞİÖŞÜ0-9][\w]*)*)\s*(?:\([^)]*\)\s*)?genellikle\s+(\d+)-(\d+)\s*TL"
+        rf"""
+        (                             # 1) urun adi
+          [{_UPPER}]\w*               #    ilk kelime buyuk harfle baslar
+          (?:\s+[{_UPPER}0-9]\w*)*    #    sonraki kelimeler buyuk harf ya da rakamla
+        )
+        \s*
+        (?:\([^)]*\)\s*)?             # opsiyonel parantezli ek, orn. "(HP uyumlu)"
+        genellikle\s+
+        (\d+)-(\d+)                   # 2) alt sinir   3) ust sinir
+        \s*TL
+        """,
+        re.VERBOSE,
     )
 
     def parse(self, retrieved_rules: list[dict | str]) -> dict[str, tuple[float, float]]:
@@ -247,35 +295,43 @@ class PriceRangeCheck(Checker):
         self._parser = parser or PriceRangeParser()
 
     def check(self, extraction: dict, retrieved_rules: list[dict]) -> list[dict]:
-        anomalies: list[dict] = []
         items = extraction.get("items")
         if not isinstance(items, list) or not retrieved_rules:
-            return anomalies
+            return []
 
         ranges = self._parser.parse(retrieved_rules)
         if not ranges:
-            return anomalies
+            return []
 
+        anomalies: list[dict] = []
         for index, item in enumerate(items):
-            if not isinstance(item, dict):
-                continue
-            description = item.get("description")
-            if not isinstance(description, str):
-                continue
-            price_range = ranges.get(description.strip().casefold())
-            if price_range is None:
-                continue
-            unit_price = _to_float(item.get("unit_price"))
-            if unit_price is None:
-                continue
-
-            low, high = price_range
-            if not (low <= unit_price <= high):
-                anomalies.append(_anomaly(
-                    self.RULE_NAME, f"items[{index}].unit_price",
-                    f"'{description}' için tipik aralık {low:g}-{high:g} TL, bulunan {unit_price}.",
-                ))
+            anomalies.extend(self._check_item(index, item, ranges))
         return anomalies
+
+    def _check_item(
+        self, index: int, item: object, ranges: dict[str, tuple[float, float]]
+    ) -> list[dict]:
+        """Tek kalemi denetler. Aralik bulunamayan, aciklamasi/birim fiyati okunamayan
+        kalemler sessizce atlanir - bu bir hata degil (bkz. sinif docstring'i)."""
+        if not isinstance(item, dict):
+            return []
+        description = item.get("description")
+        if not isinstance(description, str):
+            return []
+        price_range = ranges.get(description.strip().casefold())
+        if price_range is None:
+            return []
+        unit_price = _to_float(item.get("unit_price"))
+        if unit_price is None:
+            return []
+
+        low, high = price_range
+        if low <= unit_price <= high:
+            return []
+        return [_anomaly(
+            self.RULE_NAME, f"items[{index}].unit_price",
+            f"'{description}' için tipik aralık {low:g}-{high:g} TL, bulunan {unit_price}.",
+        )]
 
 
 # "lenient" (Settings.FORMAT_PROFILE'in varsayilani) icin sabit checker seti - ValidationAgent()

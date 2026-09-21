@@ -60,7 +60,8 @@ def test_all_templates_yield_identical_ground_truth_schema(renderer, invoice):
     for name in ("render_classic", "render_compact", "render_letterhead"):
         getattr(renderer, name)(invoice)
         schemas[name] = set(invoice.to_ground_truth().keys())
-    assert schemas["render_classic"] == schemas["render_compact"] == schemas["render_letterhead"]
+    assert schemas["render_classic"] == schemas["render_compact"]
+    assert schemas["render_compact"] == schemas["render_letterhead"]
 
 
 # --- --template CLI parametresi ----------------------------------------------
@@ -72,8 +73,9 @@ def test_template_cli_accepts_valid_choices(gen_module, value):
 
 
 def test_template_cli_rejects_invalid_choice(gen_module):
+    parser = gen_module.build_arg_parser()
     with pytest.raises(SystemExit):
-        gen_module.build_arg_parser().parse_args(["--template", "gecersiz"])
+        parser.parse_args(["--template", "gecersiz"])
 
 
 def test_template_cli_default_is_random(gen_module):

@@ -86,8 +86,9 @@ def test_cloud_provider_requires_api_key(monkeypatch):
 
 def test_stub_provider_raises_instead_of_calling_network(monkeypatch):
     settings = _settings_from_env(monkeypatch, LLM_PROVIDER="groq", GROQ_API_KEY="test-key")
+    provider = get_llm_provider(settings)
     with pytest.raises(NotImplementedError):
-        get_llm_provider(settings).generate("merhaba")
+        provider.generate("merhaba")
 
 
 def test_ollama_provider_reads_model_from_settings(monkeypatch):
@@ -379,8 +380,9 @@ def test_gemini_max_tokens_becomes_max_output_tokens(gemini_provider):
 
 def test_gemini_missing_image_raises_before_calling_api(gemini_provider, tmp_path):
     fake_models = _use_fake_client(gemini_provider, FakeGeminiResponse(text="{}"))
+    missing_path = str(tmp_path / "olmayan.png")
     with pytest.raises(FileNotFoundError, match="olmayan"):
-        gemini_provider.generate("oku", image_path=str(tmp_path / "olmayan.png"))
+        gemini_provider.generate("oku", image_path=missing_path)
     assert fake_models.calls == []  # dosya yoksa API'ye hic gidilmez
 
 
@@ -392,8 +394,9 @@ def test_gemini_corrupted_image_raises_response_error_not_raw_exception(gemini_p
     bad_image.write_bytes(b"bu bir gorsel dosyasi degil")
     fake_models = _use_fake_client(gemini_provider, FakeGeminiResponse(text="{}"))
 
+    bad_image_path = str(bad_image)
     with pytest.raises(GeminiResponseError, match="acilamadi"):
-        gemini_provider.generate("oku", image_path=str(bad_image))
+        gemini_provider.generate("oku", image_path=bad_image_path)
     assert fake_models.calls == []  # gorsel acilamadiysa API'ye hic gidilmez
 
 

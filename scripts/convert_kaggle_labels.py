@@ -155,6 +155,55 @@ class ConversionSummary:
     no_csv_match: list[str] = field(default_factory=list)
 
 
+def _resolve_image(source_dir: Path, images_out: Path, file_name: str) -> tuple[Path, bool] | None:
+    """Gorselin yerini bulur; (yol, kopyalanmasi_gerekiyor_mu) dondurur, yoksa None.
+
+    Gorsel iki yerden biri gelebilir: dogrudan images/ altina konmus olabilir
+    (bu durumda kopyalamaya gerek yok), ya da henuz islenmemis, source_dir'in
+    kokunde ham .jpg olarak durabilir (eski/ilk yerlesim tarzi)."""
+    already_placed = images_out / file_name
+    if already_placed.is_file():
+        return already_placed, False
+    raw_source = source_dir / file_name
+    if raw_source.is_file():
+        return raw_source, True
+    return None
+
+
+def _process_row(
+    row: dict, file_name: str, source_dir: Path, images_out: Path, labels_out: Path,
+    summary: ConversionSummary,
+) -> None:
+    """Tek CSV satirini isler ve sonucu summary uzerinde YERINDE biriktirir."""
+    label_path = labels_out / f"{Path(file_name).stem}.json"
+    if label_path.is_file():
+        summary.already_labeled += 1
+        return
+
+    resolved = _resolve_image(source_dir, images_out, file_name)
+    if resolved is None:
+        summary.skipped_no_image += 1
+        return
+    image_path, needs_copy = resolved
+
+    try:
+        label = convert_record(row.get("Json Data") or "")
+    except ConversionError as exc:
+        summary.errors.append((file_name, str(exc)))
+        if not needs_copy:
+            # Gorsel zaten images/ altindaydi ama etiketi cikarilamadi (bozuk
+            # kaynak veri) - GoldenDataset artik etiketsiz gorselleri sessizce
+            # atladigi icin bu artik zorunlu degil, ama images/ klasorunu "hepsi
+            # gecerli/etiketli" olarak temiz tutmak icin yine de disari tasiyoruz.
+            shutil.move(image_path, source_dir / image_path.name)
+        return
+
+    if needs_copy:
+        shutil.copy(image_path, images_out / image_path.name)
+    label_path.write_text(json.dumps(label, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary.converted += 1
+
+
 def convert_all(source_dir: Path, csv_names: tuple[str, ...]) -> ConversionSummary:
     """CSV'lerdeki tum satirlari tarar; images/ altinda karsiligi olan VE henuz etiketi
     uretilmemis her gorsel icin bir etiket JSON'u yazar. Zaten etiketli olanlar tekrar
@@ -173,41 +222,7 @@ def convert_all(source_dir: Path, csv_names: tuple[str, ...]) -> ConversionSumma
         if not file_name:
             continue
         csv_file_names.add(file_name)
-
-        label_path = labels_out / f"{Path(file_name).stem}.json"
-        if label_path.is_file():
-            summary.already_labeled += 1
-            continue
-
-        # Gorsel iki yerden biri gelebilir: dogrudan images/ altina konmus olabilir
-        # (bu durumda kopyalamaya gerek yok), ya da henuz islenmemis, source_dir'in
-        # kokunde ham .jpg olarak durabilir (eski/ilk yerlesim tarzi).
-        already_placed = images_out / file_name
-        raw_source = source_dir / file_name
-        if already_placed.is_file():
-            image_path, needs_copy = already_placed, False
-        elif raw_source.is_file():
-            image_path, needs_copy = raw_source, True
-        else:
-            summary.skipped_no_image += 1
-            continue
-
-        try:
-            label = convert_record(row.get("Json Data") or "")
-        except ConversionError as exc:
-            summary.errors.append((file_name, str(exc)))
-            if not needs_copy:
-                # Gorsel zaten images/ altindaydi ama etiketi cikarilamadi (bozuk
-                # kaynak veri) - GoldenDataset artik etiketsiz gorselleri sessizce
-                # atladigi icin bu artik zorunlu degil, ama images/ klasorunu "hepsi
-                # gecerli/etiketli" olarak temiz tutmak icin yine de disari tasiyoruz.
-                shutil.move(image_path, source_dir / image_path.name)
-            continue
-
-        if needs_copy:
-            shutil.copy(image_path, images_out / image_path.name)
-        label_path.write_text(json.dumps(label, ensure_ascii=False, indent=2), encoding="utf-8")
-        summary.converted += 1
+        _process_row(row, file_name, source_dir, images_out, labels_out, summary)
 
     summary.no_csv_match = sorted(
         p.name for pattern in IMAGE_EXTENSIONS for p in images_out.glob(pattern)

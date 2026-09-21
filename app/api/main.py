@@ -251,7 +251,26 @@ async def _stream_bulk_events(
     yield _sse_event({"step": "batch_complete", "processed": processed, "failed": failed})
 
 
-@router.post("/invoices/bulk")
+@router.post(
+    "/invoices/bulk",
+    # Sadece OpenAPI aciklamasi; yeni model/sema TANIMLANMIYOR.
+    # content'i acikca tekrar yazmak gerekiyor: FastAPI bu endpoint icin 422'yi
+    # kendisi uretiyor (HTTPValidationError semasiyla) ve buraya sadece
+    # "description" yazmak o girdinin TAMAMINI eziyor, sema kayboluyor (olculdu).
+    # Ref, FastAPI'nin kendi urettigi bilesene isaret ediyor - yeni bir sema degil.
+    responses={
+        422: {
+            "description": (
+                f"Dogrulama hatasi ya da dosya sayisi {MAX_BULK_FILES} sinirini asti."
+            ),
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+                }
+            },
+        }
+    },
+)
 async def create_invoices_bulk(
     request: Request, files: Annotated[list[UploadFile], File()]
 ) -> StreamingResponse:
@@ -287,7 +306,12 @@ def list_invoices(
     )
 
 
-@router.get("/invoices/{invoice_id}", response_model=InvoiceDetail)
+@router.get(
+    "/invoices/{invoice_id}",
+    response_model=InvoiceDetail,
+    # Sadece OpenAPI aciklamasi; yeni sema/model yok, endpoint davranisi degismiyor.
+    responses={404: {"description": "Bu id ile kayitli fatura yok."}},
+)
 def get_invoice(invoice_id: int, db: DbDep) -> InvoiceRecord:
     record = db.get(InvoiceRecord, invoice_id)
     if record is None:
