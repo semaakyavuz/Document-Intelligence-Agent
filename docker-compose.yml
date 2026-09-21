@@ -10,7 +10,16 @@ services:
     ports:
       # Host tarafi 5434: bu makinede zaten "my-postgres" adli baska bir projeden kalma
       # container 5433'u kullaniyor, catismamasi icin 5434 secildi. Container ici hep 5432.
-      - "5434:5432"
+      #
+      # Sadece loopback'e bagli: yalniz "5434:5432" yazilsaydi Docker 0.0.0.0'a baglardi
+      # ve veritabani agdaki herkese acik olurdu. Bu yerel gelistirme container'i zayif
+      # bir kimlik bilgisi kullaniyor (bkz. app/config.py), disaridan erisilebilir olmamali.
+      #
+      # IKI SATIR DA GEREKLI: bu makinede "localhost" once ::1'e cozumleniyor. Yalniz
+      # IPv4 baglansaydi DATABASE_URL'deki localhost once IPv6'yi deneyip baglanti
+      # zaman asimina dusuyordu (canlica dogrulandi). Ikisi de loopback, disa acik degil.
+      - "127.0.0.1:5434:5432"
+      - "[::1]:5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
