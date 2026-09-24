@@ -15,6 +15,9 @@ const STEP_LABELS = {
 };
 const RISK_LABELS = { passed: "Geçti", review_required: "İncelenmeli", rejected: "Reddedildi" };
 const MAX_BULK_FILES = 10;
+/* Sunucu mesajini gonderiyor (bkz. app/api/main.py: QUEUED_MESSAGE); bu yalnizca
+   olay mesajsiz gelirse kullanilan yedek metin. */
+const QUEUE_FALLBACK_MESSAGE = "Sırada bekleniyor, başka bir analiz işleniyor.";
 
 /* ---------------- Sekmeler ---------------- */
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -34,6 +37,18 @@ const resultCard = document.getElementById("resultCard");
 const errorCard = document.getElementById("errorCard");
 const errorMessage = document.getElementById("errorMessage");
 const newUploadBtn = document.getElementById("newUploadBtn");
+const queueNotice = document.getElementById("queueNotice");
+
+/* Ortak: "queued" bildirimi. message verilirse gosterir, null verilirse gizler -
+   ilk gercek adim olayi gelince cagirilir, boylece bildirim akista asili kalmaz. */
+function setQueueNotice(el, message) {
+  if (message) {
+    el.textContent = message;
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
+}
 
 // Tiklama zaten <label for="fileInput"> ile native olarak calisiyor (bkz. upload.html);
 // burada sadece surukle-birak dinleyicileri gerekiyor.
@@ -65,6 +80,7 @@ function resetUI() {
   });
   resultCard.hidden = true;
   errorCard.hidden = true;
+  setQueueNotice(queueNotice, null);
   newUploadBtn.hidden = true;
   dropzone.hidden = false;
   fileInput.value = "";
@@ -215,6 +231,13 @@ async function uploadFile(file) {
   }
 
   for await (const payload of readSseEvents(response)) {
+    if (payload.step === "queued") {
+      setQueueNotice(queueNotice, payload.message || QUEUE_FALLBACK_MESSAGE);
+      continue;
+    }
+    // Buraya gelindiyse slot alinmis ve akis basliyor: bekleme bildirimini kaldir.
+    setQueueNotice(queueNotice, null);
+
     if (payload.step === "error") {
       showError(payload.message || "Bilinmeyen hata");
     } else if (payload.step === "final") {
@@ -262,6 +285,7 @@ const bulkSubmitBtn = document.getElementById("bulkSubmitBtn");
 const bulkDemoBtn = document.getElementById("bulkDemoBtn");
 const bulkRows = document.getElementById("bulkRows");
 const bulkSummary = document.getElementById("bulkSummary");
+const bulkQueueNotice = document.getElementById("bulkQueueNotice");
 
 /* Sunucudaki hazir demo seti: frontend/samples/bulk/ altindaki 10 dosya (6 sentetik
    farkli sablon + 4 gercek dunya/Kaggle). Link paylasilan biri kendi dosyasi olmadan
@@ -396,6 +420,7 @@ async function uploadBulk(files) {
   bulkInput.disabled = true;
   selectedBulkFiles = files;
   renderBulkRows({ removable: false });
+  setQueueNotice(bulkQueueNotice, null);
 
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
@@ -426,6 +451,13 @@ async function uploadBulk(files) {
   }
 
   for await (const payload of readSseEvents(response)) {
+    if (payload.step === "queued") {
+      // Parti icin TEK slot alindigi icin bu olay en fazla bir kez, en basta gelir.
+      setQueueNotice(bulkQueueNotice, payload.message || QUEUE_FALLBACK_MESSAGE);
+      continue;
+    }
+    setQueueNotice(bulkQueueNotice, null);
+
     if (payload.step === "batch_complete") {
       showBulkSummary(payload);
     } else {

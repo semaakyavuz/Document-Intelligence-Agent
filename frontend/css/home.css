@@ -366,6 +366,21 @@ section > .wrap > h2 { margin-bottom: 0.4rem; }
 
 .error-card { background: var(--bg); border: 1px solid var(--bad); color: var(--bad); }
 
+/* Sunucu "queued" olayi gonderdiginde gorunur: hata degil, bekleme bildirimi -
+   bu yuzden --bad yerine --accent tonu. [hidden] acikca ezilmeli, cunku
+   display tanimi tarayicinin [hidden] varsayilanini yenerdi. */
+.queue-notice {
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--ink);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.9rem;
+  font-size: 0.86rem;
+}
+.queue-notice[hidden] { display: none; }
+
 #newUploadBtn, .secondary-btn {
   margin-top: 1rem;
   border: 1px solid var(--line);

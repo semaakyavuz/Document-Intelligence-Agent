@@ -12,7 +12,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from app.api.main import create_app
+from app.api.main import CLIENT_ERROR_MESSAGE, create_app
 from app.config import Settings
 from app.db.models import InvoiceRecord
 from app.providers.base import LLMProvider
@@ -166,7 +166,10 @@ def test_bulk_one_failing_file_does_not_affect_others(tmp_path):
 
     assert per_file_events[0]["status"] == "done"
     assert per_file_events[1]["status"] == "error"
-    assert "dosya #2" in per_file_events[1]["message"]
+    # Ic detay sizmamali: istemci genel mesaji gorur, saglayicinin metni ("dosya #2")
+    # yalnizca sunucu logunda kalir.
+    assert per_file_events[1]["message"] == CLIENT_ERROR_MESSAGE
+    assert "dosya #2" not in per_file_events[1]["message"]
     assert per_file_events[2]["status"] == "done"
 
     assert events[-1] == {"step": "batch_complete", "processed": 2, "failed": 1}

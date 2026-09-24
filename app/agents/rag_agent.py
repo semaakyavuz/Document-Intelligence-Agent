@@ -21,6 +21,7 @@ kullanmaz.
 """
 
 import asyncio
+import os
 import sys
 import time
 
@@ -119,7 +120,18 @@ class RAGAgent(BaseAgent):
         return state.model_copy(update={"retrieved_rules": retrieved_rules, "execution_trace": trace})
 
     async def _call_query_rules(self, query_text: str) -> list[dict]:
-        params = StdioServerParameters(command=self._server_command, args=self._server_args)
+        # env acikca veriliyor: MCP SDK'sinin stdio client'i varsayilan olarak alt surece
+        # ebeveyn ortamini AKTARMIYOR (kisitli, "guvenli" bir ortam kuruyor). MCP server
+        # kendi Settings'ini kurdugu icin EMBEDDING_PROVIDER/GEMINI_API_KEY gibi degerleri
+        # gormezse varsayilana (ollama) duser.
+        #
+        # Yerelde bu fark edilmiyordu: alt surec CWD'deki .env dosyasini okuyup dogru
+        # degerleri aliyordu. Konteynerde .env YOK (olmamali da - sir imaja girmez), bu
+        # yuzden alt surec Ollama'ya gidip "localhost:11434'e ulasilamadi" ile patladi
+        # (512 MB testinde canlica yakalandi).
+        params = StdioServerParameters(
+            command=self._server_command, args=self._server_args, env=os.environ.copy()
+        )
         async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool("query_rules", {"query": query_text, "top_k": self.top_k})

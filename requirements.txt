@@ -1,40 +1,27 @@
-# generate_invoices.py
-Faker
-# >=10.1: ImageFont.load_default() "size" argumanini bu surumde aldi. Font bulunamadigi
-# fallback dalinda (generate_invoices.py::_font) kullaniliyor - eski bir Pillow'da o dal
-# TypeError verir ve yalnizca sistem fontu olmayan ortamlarda tetiklendigi icin sessiz kalir.
-Pillow>=10.1
-
-# augment_invoices.py
-augraphy
-albumentations
-opencv-python-headless
-numpy
+# Yalnizca UYGULAMANIN CALISMASI icin gerekenler (Dockerfile bu dosyayi kurar).
+# Script'ler, veri uretimi ve testler icin gerekenler requirements-dev.txt'te.
+#
+# Bu liste app/ altindaki importlar AST ile taranarak cikarildi; "lazim olabilir"
+# diye eklenmis paket yok.
 
 # app/ (config, state, providers, agents)
 pydantic
 pydantic-settings
-requests
+requests  # app/providers/ollama_provider.py
+httpx  # app/providers/gemini_provider.py: hata turleri (TimeoutException/TransportError) dogrudan import ediliyor
 google-genai  # google-generativeai artik legacy (deprecated); Google'in resmi devam paketi
-chromadb  # RAG Agent: yerel, persist edilen vektor veritabani
+chromadb  # RAG: yerel, persist edilen vektor veritabani
 langgraph  # app/graph.py: dort ajani StateGraph olarak zincirler
 mcp  # app/mcp/rules_server.py: RAG kural sorgulamasi icin MCP server/client (resmi Python SDK, FastMCP dahil)
 sqlalchemy  # app/db/: InvoiceRecord ORM modeli + engine/session
 psycopg[binary]  # PostgreSQL driver (psycopg2 degil: psycopg3 aktif gelistirilen resmi halef)
 
+# >=10.1: ImageFont.load_default() "size" argumanini bu surumde aldi (bkz. requirements-dev
+# icindeki generate_invoices notu). app/ tarafinda da runtime: Gemini vision cagrisi
+# gorseli PIL ile aciyor (app/providers/gemini_provider.py).
+Pillow>=10.1
+
 # app/api/: HTTP katmani
 fastapi
 uvicorn[standard]
 python-multipart  # FastAPI'de UploadFile (multipart form) icin gerekli
-
-# scripts/evaluate_vision_agent.py: esnek tarih parse (format farkindan bagimsiz karsilastirma)
-python-dateutil
-
-# testler
-pytest
-pytest-cov  # CI'da coverage.xml uretir; SonarCloud bu raporu okuyor
-
-# lint (CI: .github/workflows/ci.yml)
-# Surum sabit: yeni ruff surumleri yeni kural ekleyebiliyor ve hicbir sey
-# degismeden CI'i aniden kirmiziya cevirebiliyor. Kural seti ruff.toml'da.
-ruff==0.16.7

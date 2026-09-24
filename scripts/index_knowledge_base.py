@@ -3,6 +3,10 @@ index_knowledge_base.py
 
 data/knowledge_base/ altindaki kural belgelerini embed edip ChromaDB'ye yazar.
 
+Asil mantik app/rag_index.py'de: uygulama acilista da (bulutta disk gecici oldugu
+icin) ayni kodu calistirmak zorunda, bu yuzden burada degil app/ altinda duruyor.
+Bu script yalnizca CLI sarmalayicisi.
+
 Tekrar calistirildiginda mevcut koleksiyonu siler ve sifirdan yeniden olusturur
 (idempotent): belgeler degisse/eklense/cikarilsa bile koleksiyon her zaman diskteki
 .txt dosyalariyla birebir eslesir, eski/silinmis belgeler koleksiyonda kalmaz.
@@ -22,52 +26,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import chromadb  # noqa: E402
-from chromadb.errors import NotFoundError  # noqa: E402
 
 from app.config import Settings  # noqa: E402
 from app.providers.factory import get_embedding_provider  # noqa: E402
 from app.providers.ollama_provider import OllamaEmbeddingProvider  # noqa: E402
-from app.providers.base import EmbeddingProvider  # noqa: E402
-
-
-class KnowledgeBaseLoader:
-    """data/knowledge_base/ altindaki .txt dosyalarini (dosya adi -> metin) okur."""
-
-    def __init__(self, directory: Path):
-        self.directory = directory
-
-    def load(self) -> dict[str, str]:
-        paths = sorted(self.directory.glob("*.txt"))
-        if not paths:
-            raise FileNotFoundError(f"Kural belgesi bulunamadi: {self.directory}/*.txt")
-        return {path.stem: path.read_text(encoding="utf-8").strip() for path in paths}
-
-
-class KnowledgeBaseIndexer:
-    """Belgeleri embed edip verilen ChromaDB koleksiyonuna yazar."""
-
-    def __init__(self, embedding_provider: EmbeddingProvider, chroma_client: chromadb.ClientAPI, collection_name: str):
-        self.embedding_provider = embedding_provider
-        self.chroma_client = chroma_client
-        self.collection_name = collection_name
-
-    def reindex(self, documents: dict[str, str]) -> int:
-        """Koleksiyonu sifirdan olusturur (varsa once siler) ve tum belgeleri ekler. Eklenen belge sayisini dondurur."""
-        try:
-            self.chroma_client.delete_collection(name=self.collection_name)
-        except NotFoundError:
-            pass  # ilk calistirma: koleksiyon henuz yok, sorun degil
-
-        # embedding_function=None: vektorleri kendimiz uretip veriyoruz (Chroma'nin
-        # varsayilan/indirilen embedding modelini kullanmasini istemiyoruz).
-        collection = self.chroma_client.get_or_create_collection(name=self.collection_name, embedding_function=None)
-
-        ids = list(documents.keys())
-        texts = list(documents.values())
-        embeddings = [self.embedding_provider.embed(text) for text in texts]
-
-        collection.add(ids=ids, embeddings=embeddings, documents=texts)
-        return collection.count()
+from app.rag_index import KnowledgeBaseIndexer, KnowledgeBaseLoader, embedding_identity  # noqa: E402
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -98,10 +61,14 @@ def main() -> None:
     print(f"{len(documents)} kural belgesi bulundu: {args.knowledge_base_dir}")
 
     chroma_client = chromadb.PersistentClient(path=str(chroma_path))
-    indexer = KnowledgeBaseIndexer(embedding_provider, chroma_client, collection_name)
+    identity = embedding_identity(settings)
+    indexer = KnowledgeBaseIndexer(embedding_provider, chroma_client, collection_name, identity)
     count = indexer.reindex(documents)
 
-    print(f"Koleksiyon '{collection_name}' yeniden olusturuldu -> {chroma_path} ({count} belge)")
+    print(
+        f"Koleksiyon '{collection_name}' yeniden olusturuldu -> {chroma_path} "
+        f"({count} belge, damga: {identity['embedding_provider']}/{identity['embedding_model']})"
+    )
 
 
 if __name__ == "__main__":

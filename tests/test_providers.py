@@ -536,9 +536,166 @@ def test_gemini_provider_reads_model_and_timeout_from_settings(monkeypatch):
     assert provider.model == "gemini-3.7-flash"
 
 
-def test_gemini_embedding_provider_is_still_a_stub(monkeypatch):
+def test_factory_builds_gemini_embedding_provider_with_model_and_dimension(monkeypatch):
+    """Eskiden bu test embed()'in NotImplementedError firlattigini dogruluyordu; embedding
+    artik gercek (bulut dagitimi icin gerekli), o yuzden yerine fabrika kablolamasi
+    dogrulaniyor. Davranis testleri asagida, sahte istemciyle."""
     settings = _settings_from_env(monkeypatch, EMBEDDING_PROVIDER="gemini", GEMINI_API_KEY="test-key")
     provider = get_embedding_provider(settings)
     assert isinstance(provider, GeminiEmbeddingProvider)
-    with pytest.raises(NotImplementedError):
-        provider.embed("merhaba")
+    assert provider.model == settings.GEMINI_EMBEDDING_MODEL
+    assert provider.output_dim == settings.GEMINI_EMBEDDING_DIM
+
+
+# --- GeminiEmbeddingProvider --------------------------------------------------
+# Ag yok: provider._client yerine sahte bir embed_content konur (yukaridaki
+# FakeGeminiModels/_use_fake_client ile ayni fikir).
+
+class FakeGeminiEmbedModels:
+    """Client().models yerine gecer; behavior Exception ise firlatir, degilse dondurur."""
+
+    def __init__(self, behavior):
+        self.behavior = behavior
+        self.calls: list[dict] = []
+
+    def embed_content(self, *, model, contents, config):
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        if isinstance(self.behavior, Exception):
+            raise self.behavior
+        return self.behavior
+
+
+class FakeEmbedding:
+    def __init__(self, values):
+        self.values = values
+
+
+class FakeEmbedResponse:
+    def __init__(self, vectors):
+        self.embeddings = [FakeEmbedding(v) for v in vectors]
+
+
+def _embed_provider(dim: int = 4) -> GeminiEmbeddingProvider:
+    return GeminiEmbeddingProvider(api_key="test-key", model="gemini-embedding-001", output_dim=dim)
+
+
+def _use_fake_embed_client(provider: GeminiEmbeddingProvider, behavior) -> FakeGeminiEmbedModels:
+    fake = FakeGeminiEmbedModels(behavior)
+    provider._client = type("FakeClient", (), {"models": fake})()
+    return fake
+
+
+def test_gemini_embed_returns_l2_normalized_vector():
+    """Gemini, 3072'nin altina kisilan vektorleri normalize ETMIYOR (canlica olculdu:
+    768 boyutta |v|=0.58). Kosinus benzerligi bozulmasin diye provider normalize eder."""
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, FakeEmbedResponse([[3.0, 4.0, 0.0, 0.0]]))
+
+    vector = provider.embed("klavye")
+
+    assert vector == [0.6, 0.8, 0.0, 0.0]  # |(3,4,0,0)| = 5
+
+
+def test_gemini_embed_sends_requested_output_dimensionality():
+    provider = _embed_provider(dim=4)
+    fake = _use_fake_embed_client(provider, FakeEmbedResponse([[1.0, 0.0, 0.0, 0.0]]))
+
+    provider.embed("klavye")
+
+    call = fake.calls[0]
+    assert call["model"] == "gemini-embedding-001"
+    assert call["config"].output_dimensionality == 4
+
+
+def test_gemini_embed_many_uses_a_single_api_call():
+    """Toplu cagri kota maliyetini dokuman sayisi kadar azaltiyor; bir istek atmali."""
+    provider = _embed_provider()
+    fake = _use_fake_embed_client(
+        provider, FakeEmbedResponse([[1.0, 0.0, 0.0, 0.0], [0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 0.0, 5.0]])
+    )
+
+    vectors = provider.embed_many(["a", "b", "c"])
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["contents"] == ["a", "b", "c"]
+    assert vectors == [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+
+
+def test_gemini_embed_many_with_no_texts_does_not_call_api():
+    provider = _embed_provider()
+    fake = _use_fake_embed_client(provider, FakeEmbedResponse([]))
+
+    assert provider.embed_many([]) == []
+    assert fake.calls == []
+
+
+def test_gemini_embed_many_raises_when_model_returns_fewer_vectors():
+    """gemini-embedding-2 coklu metne TEK vektor donduruyor (canlica gozlendi). Bu
+    kontrol olmasa tum bilgi tabani sessizce yanlis indekslenirdi."""
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, FakeEmbedResponse([[1.0, 0.0, 0.0, 0.0]]))
+
+    with pytest.raises(GeminiResponseError, match="3 metin icin 1 embedding"):
+        provider.embed_many(["a", "b", "c"])
+
+
+def test_gemini_embed_raises_on_wrong_dimension():
+    provider = _embed_provider(dim=4)
+    _use_fake_embed_client(provider, FakeEmbedResponse([[1.0, 2.0]]))
+
+    with pytest.raises(GeminiResponseError, match="4 boyut istendi ama 2 boyut"):
+        provider.embed("klavye")
+
+
+def test_gemini_embed_raises_on_invalid_vector_contents():
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, FakeEmbedResponse([["metin", 1.0, 2.0, 3.0]]))
+
+    with pytest.raises(GeminiResponseError, match="gecersiz embedding"):
+        provider.embed("klavye")
+
+
+def test_gemini_embed_raises_on_zero_length_vector():
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, FakeEmbedResponse([[0.0, 0.0, 0.0, 0.0]]))
+
+    with pytest.raises(GeminiResponseError, match="sifir uzunlukta"):
+        provider.embed("klavye")
+
+
+# Hata eslemesi generate() ile SIMETRIK olmali: ayni _mapped_gemini_errors kullaniliyor.
+
+def test_gemini_embed_maps_timeout_to_provider_timeout_error():
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, httpx.TimeoutException("zaman asimi"))
+
+    with pytest.raises(GeminiTimeoutError, match="cevap vermedi"):
+        provider.embed("klavye")
+
+
+def test_gemini_embed_maps_transport_error_to_unavailable():
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, httpx.ConnectError("ag yok"))
+
+    with pytest.raises(GeminiConnectionError, match="ulasilamadi"):
+        provider.embed("klavye")
+
+
+def test_gemini_embed_maps_429_to_rate_limit_error():
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, genai_errors.ClientError(
+        code=429, response_json={"error": {"message": "Resource exhausted", "status": "RESOURCE_EXHAUSTED"}}
+    ))
+
+    with pytest.raises(GeminiRateLimitError, match="GEMINI_EMBEDDING_MODEL"):
+        provider.embed("klavye")
+
+
+def test_gemini_embed_maps_other_api_error_to_response_error():
+    provider = _embed_provider()
+    _use_fake_embed_client(provider, genai_errors.ServerError(
+        code=500, response_json={"error": {"message": "internal", "status": "INTERNAL"}}
+    ))
+
+    with pytest.raises(GeminiResponseError, match="HTTP 500"):
+        provider.embed("klavye")

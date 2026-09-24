@@ -42,3 +42,12 @@ class EmbeddingProvider(ABC):
     @abstractmethod
     def embed(self, text: str) -> list[float]:
         """Verilen metnin embedding vektorunu dondurur."""
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        """Birden fazla metni embed eder; sonuc sirasi girdi sirasiyla ayni.
+
+        Varsayilan uygulama tek tek embed() cagirir - toplu API'si olmayan
+        saglayicilar (orn. Ollama) icin dogru davranis. Toplu cagriyi destekleyen
+        saglayicilar bunu override edip tek istekte hallederek istek sayisini
+        (dolayisiyla kotayi) dusurur; bkz. GeminiEmbeddingProvider."""
+        return [self.embed(text) for text in texts]

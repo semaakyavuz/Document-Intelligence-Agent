@@ -16,7 +16,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.main import create_app
+from app.api.main import CLIENT_ERROR_MESSAGE, create_app
 from app.config import Settings
 from app.providers.base import LLMProvider
 from app.state import PipelineState
@@ -143,7 +143,10 @@ def test_stream_emits_error_event_when_a_node_raises(tmp_path):
 
     assert len(events) == 1
     assert events[0]["step"] == "error"
-    assert "saglayiciya baglanilamadi" in events[0]["message"]
+    # Istemciye GENEL mesaj gider; saglayicinin kendi hata metni (dosya yolu, API
+    # yaniti, yigin izi tasiyabilir) HTTP govdesine sizmamali - detay sunucu logunda.
+    assert events[0]["message"] == CLIENT_ERROR_MESSAGE
+    assert "saglayiciya baglanilamadi" not in events[0]["message"]
 
 
 def test_stream_error_does_not_write_to_database(tmp_path):

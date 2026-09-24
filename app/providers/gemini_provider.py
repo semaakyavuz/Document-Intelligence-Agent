@@ -5,10 +5,16 @@ Google Gemini API'si uzerinden LLM ve embedding.
 
 GeminiLLMProvider gercek API cagrisi yapar (google-genai SDK). google-generativeai
 paketi artik legacy/deprecated oldugu icin (Google'in kendi tavsiyesiyle) onun
-yerine aktif gelistirilen google-genai kullanilir. Embedding tarafi henuz iskelet.
+yerine aktif gelistirilen google-genai kullanilir.
+
+GeminiEmbeddingProvider bulut dagitimi (Render) icin gerekli: orada Ollama yok,
+embedding de Gemini'den geliyor. Toplu cagriyi destekler - bilgi tabaninin tamami
+tek istekte embed edilir.
 """
 
 import logging
+import math
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -50,6 +56,31 @@ class GeminiRateLimitError(GeminiResponseError):
     yakalanabilir ki ileride burada bekle-ve-tekrar-dene (backoff) eklenebilsin."""
 
 
+@contextmanager
+def _mapped_gemini_errors(model: str, timeout_s: float, rate_limit_hint: str):
+    """google-genai / httpx hatalarini ProviderError ailesine cevirir.
+
+    generate() ve embed() ayni eslemeyi paylassin diye tek yerde toplandi -
+    boylece iki ucun hata davranisi kendiliginden simetrik kaliyor (Ollama
+    tarafindaki _post_json'in ustlendigi role denk)."""
+    try:
+        yield
+    except httpx.TimeoutException as exc:
+        raise GeminiTimeoutError(
+            f"Gemini {timeout_s:.0f} sn icinde cevap vermedi (model={model})."
+        ) from exc
+    except httpx.TransportError as exc:
+        raise GeminiConnectionError(
+            f"Gemini API'sine ulasilamadi: {exc}. Internet baglantisini kontrol edin."
+        ) from exc
+    except errors.APIError as exc:
+        if exc.code == 429:
+            raise GeminiRateLimitError(
+                f"Gemini API rate limit'e takildi (429): {exc.message}. {rate_limit_hint}"
+            ) from exc
+        raise GeminiResponseError(f"Gemini HTTP {exc.code} ({exc.status}): {exc.message}") from exc
+
+
 class GeminiLLMProvider(LLMProvider):
     """Gemini generateContent ucu uzerinden metin/gorsel destekli uretim."""
 
@@ -79,23 +110,11 @@ class GeminiLLMProvider(LLMProvider):
         if image_path is not None:
             contents.append(self._load_image(image_path))
 
-        try:
+        with _mapped_gemini_errors(
+            self.model, self.timeout_s,
+            "Bir sure bekleyip tekrar deneyin ya da GEMINI_VISION_MODEL'i degistirin.",
+        ):
             response = self._call_with_thinking_fallback(contents, max_tokens)
-        except httpx.TimeoutException as exc:
-            raise GeminiTimeoutError(
-                f"Gemini {self.timeout_s:.0f} sn icinde cevap vermedi (model={self.model})."
-            ) from exc
-        except httpx.TransportError as exc:
-            raise GeminiConnectionError(
-                f"Gemini API'sine ulasilamadi: {exc}. Internet baglantisini kontrol edin."
-            ) from exc
-        except errors.APIError as exc:
-            if exc.code == 429:
-                raise GeminiRateLimitError(
-                    f"Gemini API rate limit'e takildi (429): {exc.message}. "
-                    "Bir sure bekleyip tekrar deneyin ya da GEMINI_VISION_MODEL'i degistirin."
-                ) from exc
-            raise GeminiResponseError(f"Gemini HTTP {exc.code} ({exc.status}): {exc.message}") from exc
 
         return self._extract_text(response)
 
@@ -177,13 +196,78 @@ class GeminiLLMProvider(LLMProvider):
             raise GeminiResponseError(f"Gorsel acilamadi (bozuk/gecersiz dosya): {path} ({exc})") from exc
 
 
+def _l2_normalize(vector: list[float], model: str) -> list[float]:
+    """Vektoru birim uzunluga getirir.
+
+    Gerekli, cunku Gemini yalnizca varsayilan 3072 boyutlu cikti icin normalize
+    vektor donduruyor; output_dimensionality ile kisilan ciktilar normalize DEGIL
+    (olculdu: 3072 -> |v|=1.0000, 768 -> |v|=0.5839). Normalize etmezsek kosinus
+    benzerligi bozulur ve RAG alakasiz kurallar getirir."""
+    norm = math.sqrt(sum(x * x for x in vector))
+    if norm == 0:
+        raise GeminiResponseError(f"Gemini sifir uzunlukta embedding vektoru dondurdu (model={model}).")
+    return [x / norm for x in vector]
+
+
 class GeminiEmbeddingProvider(EmbeddingProvider):
     """Gemini embedContent ucu uzerinden vektor uretimi."""
 
-    def __init__(self, api_key: str | None):
+    # Embedding, vision uretiminden cok daha hizli (olcum: ~0.5 sn), 60 sn fazlasiyla yeterli.
+    DEFAULT_TIMEOUT_S = 60.0
+    RATE_LIMIT_HINT = "Bir sure bekleyip tekrar deneyin ya da GEMINI_EMBEDDING_MODEL'i degistirin."
+
+    def __init__(
+        self, api_key: str | None, model: str, output_dim: int, timeout_s: float = DEFAULT_TIMEOUT_S
+    ):
         self.api_key = _require_api_key(api_key)
+        self.model = model
+        self.output_dim = output_dim
+        self.timeout_s = timeout_s
+        self._client = genai.Client(
+            api_key=self.api_key,
+            http_options=types.HttpOptions(timeout=int(timeout_s * 1000)),  # ms bekliyor
+        )
 
     def embed(self, text: str) -> list[float]:
-        # TODO: google-genai SDK ile embed_content. RAG Agent bilerek yalnizca Ollama embedding
-        # kullaniyor (yerel kalsin diye); bu metot su an hicbir akista cagrilmiyor.
-        raise NotImplementedError("GeminiEmbeddingProvider.embed henuz eklenmedi")
+        return self.embed_many([text])[0]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        """Tum metinleri TEK API cagrisinda embed eder.
+
+        Render gibi diski gecici olan ortamlarda uygulama her uyandiginda bilgi
+        tabani yeniden indeksleniyor; toplu cagri bunun kota maliyetini dokuman
+        sayisi kadar (12 dokuman -> 12 istek yerine 1 istek) azaltiyor."""
+        if not texts:
+            return []
+
+        with _mapped_gemini_errors(self.model, self.timeout_s, self.RATE_LIMIT_HINT):
+            response = self._client.models.embed_content(
+                model=self.model,
+                contents=list(texts),
+                config=types.EmbedContentConfig(output_dimensionality=self.output_dim),
+            )
+
+        embeddings = getattr(response, "embeddings", None)
+        # Uzunluk kontrolu sart: bazi modeller (orn. gemini-embedding-2) coklu metin
+        # verildiginde sessizce TEK vektor donduruyor. Bu kontrol olmasa tum bilgi
+        # tabani yanlis indekslenir ve hicbir hata gorunmezdi.
+        if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+            got = len(embeddings) if isinstance(embeddings, list) else type(embeddings).__name__
+            raise GeminiResponseError(
+                f"Gemini {len(texts)} metin icin {got} embedding dondurdu (model={self.model})."
+            )
+        return [_l2_normalize(self._vector_of(e), self.model) for e in embeddings]
+
+    def _vector_of(self, embedding) -> list[float]:
+        values = getattr(embedding, "values", None)
+        if not isinstance(values, list) or not values or not all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in values
+        ):
+            raise GeminiResponseError(
+                f"Gemini gecersiz embedding vektoru dondurdu (model={self.model}): {str(values)[:120]}"
+            )
+        if len(values) != self.output_dim:
+            raise GeminiResponseError(
+                f"Gemini {self.output_dim} boyut istendi ama {len(values)} boyut dondurdu (model={self.model})."
+            )
+        return values

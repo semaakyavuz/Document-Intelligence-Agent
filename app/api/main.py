@@ -22,6 +22,7 @@ baslarken (uvicorn ile ya da testte "with TestClient(app) as client:") devreye g
 import asyncio
 import datetime
 import json
+import logging
 import tempfile
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
@@ -50,9 +51,24 @@ from app.db.models import InvoiceRecord
 from app.db.session import get_session_factory, init_db
 from app.graph import build_pipeline_graph
 from app.providers.base import LLMProvider
+from app.rag_index import ensure_indexed
 from app.state import PipelineState
 
+logger = logging.getLogger(__name__)
+
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+
+# Istemciye donen tek tip hata mesaji. Ic detay (dosya yolu, saglayici yaniti,
+# yigin izi) HTTP govdesine hic girmiyor; sadece logger.exception ile sunucu logunda.
+CLIENT_ERROR_MESSAGE = "Fatura islenirken bir hata olustu. Lutfen tekrar deneyin."
+
+# Ayni anda kac pipeline calisabilir: Settings.MAX_CONCURRENT_PIPELINES (varsayilan 2).
+# Olculen bellek gerekcesi orada; sinirin ustundeki istekler reddedilmez, kuyrukta
+# bekler. MCP surecini paylasmak bu tavani yukseltirdi ama ayri bir mimari is.
+
+# Slot beklerken istemciye gonderilen mesaj. Uydurma bir ara durum degil: istek
+# gercekten semaforda bekliyor ve bu olaydan sonra normal akis aynen devam ediyor.
+QUEUED_MESSAGE = "Sırada bekleniyor, başka bir analiz işleniyor."
 
 
 class InvoiceSummary(BaseModel):
@@ -88,10 +104,15 @@ def get_graph(request: Request) -> CompiledStateGraph:
     return request.app.state.graph
 
 
+def get_pipeline_slots(request: Request) -> asyncio.Semaphore:
+    return request.app.state.pipeline_slots
+
+
 router = APIRouter()
 
 GraphDep = Annotated[CompiledStateGraph, Depends(get_graph)]
 DbDep = Annotated[Session, Depends(get_db)]
+SlotsDep = Annotated[asyncio.Semaphore, Depends(get_pipeline_slots)]
 
 
 async def _save_upload(file: UploadFile) -> tuple[str, str]:
@@ -119,11 +140,15 @@ async def _save_upload(file: UploadFile) -> tuple[str, str]:
 
 
 @router.post("/invoices", status_code=201)
-async def create_invoice(file: Annotated[UploadFile, File()], graph: GraphDep, db: DbDep) -> dict:
+async def create_invoice(file: Annotated[UploadFile, File()], graph: GraphDep, db: DbDep, slots: SlotsDep) -> dict:
     image_filename, tmp_path = await _save_upload(file)
 
     try:
-        raw_result = await graph.ainvoke(PipelineState(image_path=tmp_path))
+        # Bu uc SSE'siz oldugu icin "queued" olayi gonderemiyor; slot bosalana kadar
+        # sadece bekler (istemci normal bir yavas yanit gorur). Yine de semafora
+        # bagli olmasi sart: aksi halde bellek sinirini bu uctan asmak mumkun olurdu.
+        async with slots:
+            raw_result = await graph.ainvoke(PipelineState(image_path=tmp_path))
         # graph.ainvoke() duz bir dict dondurur; None kalan alanlar dusebilir
         # (bkz. run_pipeline_graph.py'deki ayni not); PipelineState(**raw_result) geri tamamlar.
         final_state = PipelineState(**raw_result)
@@ -148,6 +173,7 @@ async def _stream_pipeline_events(
     session_factory: sessionmaker[Session],
     image_filename: str,
     tmp_path: str,
+    slots: asyncio.Semaphore,
 ) -> AsyncIterator[str]:
     """graph.astream(stream_mode='updates') adimlarini SSE olaylarina cevirir.
 
@@ -161,19 +187,35 @@ async def _stream_pipeline_events(
     devam ediyor, ve yield'li bir FastAPI dependency'nin bu durumda ne zaman kapatilacagi
     belirsiz bir alan - session_factory'yi dogrudan kullanmak bu belirsizligi tamamen
     ortadan kaldirir.
+
+    Slot beklemesi de bu generator'in icinde: "queued" olayi ancak stream basladiktan
+    sonra gonderilebilir, yani semafor route fonksiyonunda DEGIL burada alinmali.
+    Gecici dosya silme (finally) beklemeyi de kapsiyor; istemci beklerken baglantiyi
+    koparsa (GeneratorExit, BaseException) dosya yine siliniyor.
     """
     final_report: dict | None = None
     try:
-        async for update in graph.astream(PipelineState(image_path=tmp_path), stream_mode="updates"):
-            (node_name, state_dict), = update.items()
-            yield _sse_event({"step": node_name, "status": "done"})
-            if node_name == "report":
-                final_report = state_dict["final_report"]
-    except Exception as exc:  # noqa: BLE001 -- SSE sinirinda kasitli: herhangi bir node
+        if slots.locked():
+            # locked(): "semafor su anda hemen alinamaz" - acquire()'in kendisi de tam
+            # bu yuklemi kullaniyor (CPython 3.12: bos slot YOKSA ya da sirada bekleyen
+            # varsa True), yani olay tam olarak gercekten beklenecegi zaman gidiyor:
+            # ne yanlis alarm ne kacirilan bekleme. Once olayi gonder, sonra bekle -
+            # tersi olsa kullanici bos bir sayfayla beklerdi.
+            yield _sse_event({"step": "queued", "message": QUEUED_MESSAGE})
+        async with slots:
+            async for update in graph.astream(PipelineState(image_path=tmp_path), stream_mode="updates"):
+                (node_name, state_dict), = update.items()
+                yield _sse_event({"step": node_name, "status": "done"})
+                if node_name == "report":
+                    final_report = state_dict["final_report"]
+    except Exception:  # noqa: BLE001 -- SSE sinirinda kasitli: herhangi bir node
         # hatasi (saglayici, MCP, ...) burada bir "error" olayina cevrilip stream duzgunce
         # kapatilmali, yeniden raise edilmemeli. Node'un firlattigi exception async for'a
         # oldugu gibi (sarmalanmadan) geliyor (canlica dogrulandi).
-        yield _sse_event({"step": "error", "message": str(exc)})
+        # Istemciye GENEL mesaj: str(exc) dosya yolu, API yaniti ya da yigin izi
+        # sizdirabiliyor. Detay yalnizca sunucu logunda.
+        logger.exception("Pipeline hatasi (%s)", image_filename)
+        yield _sse_event({"step": "error", "message": CLIENT_ERROR_MESSAGE})
         return
     finally:
         Path(tmp_path).unlink(missing_ok=True)
@@ -199,6 +241,7 @@ async def create_invoice_stream(request: Request, file: Annotated[UploadFile, Fi
         session_factory=request.app.state.session_factory,
         image_filename=image_filename,
         tmp_path=tmp_path,
+        slots=request.app.state.pipeline_slots,
     )
     return StreamingResponse(generator, media_type="text/event-stream")
 
@@ -210,40 +253,51 @@ async def _stream_bulk_events(
     graph: CompiledStateGraph,
     session_factory: sessionmaker[Session],
     files: list[tuple[str, str]],
+    slots: asyncio.Semaphore,
 ) -> AsyncIterator[str]:
     """Birden fazla faturayi SIRAYLA isler (ayni anda degil - Gemini kotasini korumak
     icin). files: [(orijinal_dosya_adi, gecici_yol), ...]. Her dosya kendi try/except'i
     icinde izole edilir: biri hata verirse digerlerinin islenmesi etkilenmez (bkz.
-    _stream_pipeline_events'teki tek-dosya versiyonuyla ayni SSE-sinir gerekcesi)."""
+    _stream_pipeline_events'teki tek-dosya versiyonuyla ayni SSE-sinir gerekcesi).
+
+    Semafor TUM PARTI icin bir kez alinir, dosya basina degil: dosyalar sirayla
+    islendigi icin ayni anda yalnizca bir pipeline (yani bir MCP alt sureci) ayakta -
+    bellek maliyeti tek bir slot kadar. Dosya basina almak ayni slotu 10 kez alip
+    birakmak olurdu: bellek acisindan farksiz, ama parti arada baska bir istekle
+    kesilebilirdi."""
     total = len(files)
     processed = 0
     failed = 0
     try:
-        for index, (filename, tmp_path) in enumerate(files, start=1):
-            try:
-                raw_result = await graph.ainvoke(PipelineState(image_path=tmp_path))
-                final_state = PipelineState(**raw_result)
-                final_report = final_state.final_report
+        if slots.locked():
+            yield _sse_event({"step": "queued", "message": QUEUED_MESSAGE})
+        async with slots:
+            for index, (filename, tmp_path) in enumerate(files, start=1):
+                try:
+                    raw_result = await graph.ainvoke(PipelineState(image_path=tmp_path))
+                    final_state = PipelineState(**raw_result)
+                    final_report = final_state.final_report
 
-                record = InvoiceRecord.from_final_report(filename, final_report)
-                with session_factory() as session:
-                    session.add(record)
-                    session.commit()
-                    session.refresh(record)
-                    record_id = record.id
+                    record = InvoiceRecord.from_final_report(filename, final_report)
+                    with session_factory() as session:
+                        session.add(record)
+                        session.commit()
+                        session.refresh(record)
+                        record_id = record.id
 
-                processed += 1
-                yield _sse_event({
-                    "file": filename, "index": index, "total": total,
-                    "status": "done", "report": final_report, "id": record_id,
-                })
-            except Exception as exc:  # noqa: BLE001 -- dosya bazinda izolasyon: biri
-                # patlarsa digerlerinin islenmeye devam etmesi gerekiyor.
-                failed += 1
-                yield _sse_event({
-                    "file": filename, "index": index, "total": total,
-                    "status": "error", "message": str(exc),
-                })
+                    processed += 1
+                    yield _sse_event({
+                        "file": filename, "index": index, "total": total,
+                        "status": "done", "report": final_report, "id": record_id,
+                    })
+                except Exception:  # noqa: BLE001 -- dosya bazinda izolasyon: biri
+                    # patlarsa digerlerinin islenmeye devam etmesi gerekiyor.
+                    failed += 1
+                    logger.exception("Toplu islemede dosya hatasi (%s)", filename)
+                    yield _sse_event({
+                        "file": filename, "index": index, "total": total,
+                        "status": "error", "message": CLIENT_ERROR_MESSAGE,
+                    })
     finally:
         for _, tmp_path in files:
             Path(tmp_path).unlink(missing_ok=True)
@@ -287,6 +341,7 @@ async def create_invoices_bulk(
         graph=request.app.state.graph,
         session_factory=request.app.state.session_factory,
         files=saved,
+        slots=request.app.state.pipeline_slots,
     )
     return StreamingResponse(generator, media_type="text/event-stream")
 
@@ -328,6 +383,13 @@ def create_app(
     """FastAPI uygulamasini kurar. Hicbir parametre verilmezse .env'deki gercek
     ayarlarla (gercek LLM saglayicisi, gercek RAGAgent/MCP, gercek Postgres) calisir;
     testlerde tumu sahte/gecici olanlarla degistirilebilir."""
+    # uvicorn yalnizca kendi logger'larini yapilandiriyor; root logger varsayilani
+    # WARNING oldugu icin bizim logger.info satirlarimiz (orn. "bilgi tabani
+    # indekslendi / neden") konteyner logunda hic gorunmuyordu - 512 MB testinde
+    # indekslemenin olup olmadigini ancak koleksiyona bakarak dogrulayabildim.
+    # force=False: zaten yapilandirilmis bir root logger'i ezmez.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
+
     settings = settings or Settings()
     session_factory = session_factory or get_session_factory(settings=settings)
     graph = build_pipeline_graph(
@@ -337,11 +399,29 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         init_db(settings=settings)
+        # Bulutta (Render) disk gecici: servis her uyandiginda ChromaDB bos gelir.
+        # ensure_indexed ayrica koleksiyonun BASKA bir embedding saglayici/modeli ile
+        # kurulup kurulmadigini da denetler (bkz. app/rag_index.py).
+        # to_thread: senkron ve ag yapan bir is, startup event loop'unu bloklamasin.
+        # Hata olursa uygulama COKMEZ, yalnizca loglanir: statik sayfalar ve
+        # GET /invoices bilgi tabani olmadan da calisiyor, RAG adimi ise istek
+        # basina zaten anlasilir bir "bilgi tabani bos" hatasi veriyor. Acilista
+        # crash-loop'a girmek Render'da teshisi daha zor bir hale yol acardi.
+        try:
+            status = await asyncio.to_thread(ensure_indexed, settings=settings)
+            logger.info("Bilgi tabani durumu: %s", status)
+        except Exception:
+            logger.exception("Bilgi tabani indekslenemedi; uygulama yine de basliyor.")
         yield
 
     app = FastAPI(title="Invoice Vision Agent API", lifespan=lifespan)
     app.state.graph = graph
     app.state.session_factory = session_factory
+    # Sinir Settings'ten geliyor: Render'da plan degisirse kod degil ortam degiskeni
+    # degisiyor. asyncio.Semaphore Python 3.10'dan beri kuruldugu anda bir event
+    # loop'a baglanmiyor (ilk await'te baglaniyor), bu yuzden burada - loop disinda -
+    # kurulmasi guvenli.
+    app.state.pipeline_slots = asyncio.Semaphore(settings.MAX_CONCURRENT_PIPELINES)
     app.include_router(router)
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
     return app

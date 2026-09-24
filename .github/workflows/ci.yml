@@ -30,7 +30,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          # Ikisi de: dev dosyasi runtime'i "-r requirements.txt" ile cekiyor, yani
+          # hangisi degisirse onbellek anahtari yenilenmeli.
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       # augraphy zorunlu bagimlilik olarak TAM opencv-python'u cekiyor; bu paket
       # requirements.txt'teki opencv-python-headless ile ayni cv2 isim alanina
@@ -42,10 +46,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libgl1 libglib2.0-0 libxcb1
 
+      # CI testleri ve lint'i calistirdigi icin dev bagimliliklari gerekiyor;
+      # requirements-dev.txt kendi icinde runtime'i da kuruyor.
       - name: Bagimliliklari kur
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Ruff (lint)
         run: ruff check .

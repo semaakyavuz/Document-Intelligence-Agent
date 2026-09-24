@@ -1,0 +1,31 @@
+# Gelistirme, veri uretimi ve test bagimliliklari. Uygulamanin CALISMASI icin
+# gerekmez - Dockerfile bu dosyayi KURMAZ, sadece requirements.txt'i kurar.
+#
+# Kurulum:  pip install -r requirements-dev.txt   (runtime'i da beraberinde kurar)
+
+-r requirements.txt
+
+# scripts/generate_invoices.py: sentetik fatura uretimi
+Faker
+
+# scripts/augment_invoices.py: gorsel bozma/cogaltma.
+# Not: augraphy zorunlu bagimlilik olarak TAM opencv-python'u cekiyor ve
+# opencv-python-headless ile ayni cv2 isim alanina kuruluyor; GUI'li olan kazandigi
+# icin CI'da libgl1/libglib2.0-0/libxcb1 sistem paketleri gerekiyor
+# (bkz. .github/workflows/ci.yml). Bu paketler runtime imajinda YOK - gerekmiyor.
+augraphy
+albumentations
+opencv-python-headless
+numpy
+
+# scripts/evaluate_vision_agent.py: esnek tarih parse (format farkindan bagimsiz karsilastirma)
+python-dateutil
+
+# testler
+pytest
+pytest-cov  # CI'da coverage.xml uretir; SonarCloud bu raporu okuyor
+
+# lint (CI: .github/workflows/ci.yml)
+# Surum sabit: yeni ruff surumleri yeni kural ekleyebiliyor ve hicbir sey
+# degismeden CI'i aniden kirmiziya cevirebiliyor. Kural seti ruff.toml'da.
+ruff==0.16.7

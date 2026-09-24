@@ -1,0 +1,37 @@
+# Build context'i kucuk tutar. Bunlar olmadan yerel .venv, .git ve data/ altindaki
+# binlerce Kaggle gorseli Docker daemon'a gonderiliyor ve build dakikalar suruyor.
+
+.git
+.github
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+graphify-out
+augraphy_cache
+coverage.xml
+.coverage
+htmlcov
+
+# Veri: imaja YALNIZCA data/knowledge_base/ giriyor (Dockerfile'da acikca COPY
+# ediliyor), geri kalani (sentetik/Kaggle gorselleri, chroma_db, eval raporlari)
+# gerekmiyor - chroma_db acilista zaten yeniden olusturuluyor.
+data/*
+!data/knowledge_base
+!data/knowledge_base/**
+
+# Gelistirme/test tarafi: imajda calismiyor
+tests
+scripts
+requirements-dev.txt
+ruff.toml
+pytest.ini
+sonar-project.properties
+docker-compose.yml
+*.md
+
+.env
+.vscode
+.claude

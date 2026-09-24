@@ -249,6 +249,9 @@
           </div>
 
           <div class="split-detail">
+            <!-- Sunucu slot beklemesini SSE'de "queued" olayiyla bildiriyor (bkz.
+                 app/api/main.py: MAX_CONCURRENT_PIPELINES); ilk gercek adim gelince gizlenir. -->
+            <div id="queueNotice" class="queue-notice" hidden></div>
             <div id="steps">
               <div class="step-box" data-step="vision"><div class="label">Vision</div><div class="status">Bekliyor</div></div>
               <div class="step-box" data-step="rag"><div class="label">RAG</div><div class="status">Bekliyor</div></div>
@@ -311,6 +314,7 @@
             <div><button id="bulkSubmitBtn" disabled>Yükle</button></div>
           </div>
           <div class="split-detail">
+            <div id="bulkQueueNotice" class="queue-notice" hidden></div>
             <div id="bulkRows"></div>
             <div id="bulkSummary"></div>
           </div>
