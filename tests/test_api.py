@@ -156,6 +156,80 @@ def test_get_invoice_returns_404_when_missing(app):
     assert response.status_code == 404
 
 
+# --- ana sayfa ve saglik kontrolu --------------------------------------------
+
+def test_root_serves_the_home_page(app):
+    """Render'da kok adres 404 veriyordu; artik ana sayfayi DOGRUDAN sunuyor
+    (yonlendirme degil - 200 donmeli, 3xx degil)."""
+    with TestClient(app) as client:
+        response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Document Intelligence" in response.text
+
+
+def test_static_upload_page_still_works(app):
+    """Eski adres kirilmadi: ayni dosya, ayni icerik."""
+    with TestClient(app) as client:
+        root = client.get("/")
+        static = client.get("/static/upload.html")
+
+    assert static.status_code == 200
+    assert static.text == root.text
+
+
+def test_home_page_asset_paths_are_absolute(app):
+    """Sayfa iki adresten birden sunuldugu icin CSS/JS yollari mutlak olmali;
+    goreli bir yol kok adreste sessizce 404 verir ve sayfa stilsiz gelirdi."""
+    with TestClient(app) as client:
+        html = client.get("/").text
+
+    assert 'href="/static/css/design-system.css"' in html
+    assert 'href="/static/css/home.css"' in html
+    assert 'src="/static/js/upload-flow.js"' in html
+    assert 'src="/static/js/home.js"' in html
+
+
+def test_home_page_assets_are_actually_served(app):
+    """Yollarin dogru yazilmis olmasi yetmez; o adresler gercekten dosya dondurmeli."""
+    with TestClient(app) as client:
+        for path in (
+            "/static/css/design-system.css",
+            "/static/css/home.css",
+            "/static/js/upload-flow.js",
+            "/static/js/home.js",
+            "/static/dashboard.html",
+        ):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert response.content, path
+
+
+def test_health_returns_ok(app):
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_health_does_not_touch_the_database(tmp_path):
+    """Saglik kontrolu bilerek veritabanindan bagimsiz: erisilemeyen bir veritabani
+    ayariyla bile 200 donmeli (Render, DB gecici olarak dustu diye servisi yeniden
+    baslatmasin)."""
+    settings = Settings(_env_file=None, DATABASE_URL="postgresql+psycopg://yok:yok@127.0.0.1:1/yok")
+    broken_app = create_app(settings=settings, llm_provider=FakeLLMProvider(), rag_agent=StubRAGAgent())
+
+    # TestClient context'ine GIRILMIYOR: lifespan init_db() calistirir ve bu sahte
+    # adrese baglanmaya calisirdi. Burada olculen sey tam olarak "endpoint kendisi
+    # veritabanina dokunuyor mu".
+    response = TestClient(broken_app).get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 # --- gercek servislerle uctan uca --------------------------------------------
 
 @pytest.mark.slow

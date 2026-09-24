@@ -39,7 +39,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict
@@ -344,6 +344,35 @@ async def create_invoices_bulk(
         slots=request.app.state.pipeline_slots,
     )
     return StreamingResponse(generator, media_type="text/event-stream")
+
+
+@router.get("/", include_in_schema=False)
+def serve_home() -> FileResponse:
+    """Kok adres ana sayfayi DOGRUDAN sunar (yonlendirme degil).
+
+    Neden yonlendirme degil: bu adres paylasilan demo linki; /static/upload.html'e
+    yonlendirmek kullaniciyi kalici olarak uzun adrese tasirdi.
+
+    Bunun calismasi icin upload.html'deki CSS/JS yollarinin MUTLAK (/static/...)
+    olmasi sart - goreli olsalardi burada /css/... diye cozulup 404 verirlerdi
+    (sayfadaki yorumlara bakin). /static/upload.html de calismaya devam ediyor:
+    ayni dosya, ayni mutlak yollar.
+    """
+    return FileResponse(FRONTEND_DIR / "upload.html")
+
+
+@router.get("/health", include_in_schema=False)
+def health() -> dict:
+    """Render'in saglik kontrolu icin: ucuz, kosulsuz 200.
+
+    Kasitli olarak veritabanina DOKUNMUYOR. Iki nedenle:
+    - Saglik kontrolu sik cagriliyor; her cagride Neon'a gitmek uyuyan veritabanini
+      surekli uyandirip ucretsiz katman saatlerini yakardi.
+    - Canlilik (surec ayakta mi) ile hazir olma (bagimliliklar saglam mi) ayri
+      sorular. Veritabani gecici olarak erisilemezken bile statik sayfalar ve
+      arayuz calisiyor; Render'in servisi bu yuzden yeniden baslatmasi istenmez.
+    """
+    return {"status": "ok"}
 
 
 @router.get("/invoices", response_model=list[InvoiceSummary])

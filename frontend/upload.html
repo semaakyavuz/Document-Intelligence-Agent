@@ -6,8 +6,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/design-system.css">
-<link rel="stylesheet" href="css/home.css">
+<!-- Mutlak /static/ yolu sart: bu sayfa IKI adresten birden sunuluyor (/ ve
+     /static/upload.html, bkz. app/api/main.py). Goreli "css/..." yazilsaydi kok
+     adreste /css/... diye cozulup 404 verir, sayfa stilsiz gelirdi. -->
+<link rel="stylesheet" href="/static/css/design-system.css">
+<link rel="stylesheet" href="/static/css/home.css">
 </head>
 <body>
 
@@ -329,7 +332,7 @@
   <div class="wrap">Document Intelligence Agent — Vision · RAG · Validation · Report</div>
 </footer>
 
-<script src="js/upload-flow.js"></script>
-<script src="js/home.js"></script>
+<script src="/static/js/upload-flow.js"></script>
+<script src="/static/js/home.js"></script>
 </body>
 </html>
